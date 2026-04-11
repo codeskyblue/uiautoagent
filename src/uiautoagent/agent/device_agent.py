@@ -1,5 +1,7 @@
 """通用设备AI Agent - 支持自主决策和执行任务"""
 
+from __future__ import annotations
+
 import json
 import time
 from enum import Enum
@@ -8,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from device_controller import DeviceController, SwipeDirection
+from uiautoagent.controller.base import DeviceController, SwipeDirection
 
 
 class ActionType(str, Enum):
@@ -118,7 +120,7 @@ class DeviceAgent:
 
     def _detect_and_tap(self, screenshot_path: Path, target: str) -> tuple[bool, str]:
         """检测并点击元素"""
-        from bbox_detector import detect_element
+        from uiautoagent.detector import detect_element
 
         result = detect_element(screenshot_path, target)
         if result.found and result.bbox:

@@ -1,10 +1,13 @@
 """基于ADB命令的Android设备控制器"""
 
+from __future__ import annotations
+
 import subprocess
 import re
 from pathlib import Path
+from typing import List
 
-from device_controller import DeviceController, SwipeDirection
+from uiautoagent.controller.base import DeviceController, SwipeDirection
 
 
 class DeviceInfo:
@@ -34,7 +37,7 @@ class AndroidController(DeviceController):
         self._device_info: DeviceInfo | None = None
 
     @property
-    def device_arg(self) -> list[str]:
+    def device_arg(self) -> List[str]:
         """返回adb命令的设备参数"""
         return ["-s", self.serial] if self.serial else []
 
@@ -210,7 +213,7 @@ class AndroidController(DeviceController):
         return output
 
     @staticmethod
-    def list_devices() -> list[str]:
+    def list_devices() -> List[str]:
         """列出所有已连接的设备序列号"""
         result = subprocess.run(
             ["adb", "devices"],
@@ -245,7 +248,7 @@ def find_and_tap(
     Returns:
         是否成功找到并点击
     """
-    from bbox_detector import detect_element
+    from uiautoagent.detector import detect_element
 
     # 截图
     controller.screenshot(image_path)

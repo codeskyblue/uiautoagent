@@ -1,10 +1,12 @@
 """设备控制器抽象基类"""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Literal
+from typing import List, Literal
 
-from bbox_detector import BBox, DetectionResult
+from uiautoagent.detector import BBox, DetectionResult
 
 
 SwipeDirection = Literal["up", "down", "left", "right"]
@@ -67,7 +69,7 @@ class DeviceController(ABC):
 
     @staticmethod
     @abstractmethod
-    def list_devices() -> list[str]:
+    def list_devices() -> List[str]:
         """列出所有已连接的设备"""
         pass
 

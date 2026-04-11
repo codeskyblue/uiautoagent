@@ -1,0 +1,387 @@
+"""AI 任务执行器 - 自主决策并执行任务"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+from uiautoagent import get_ai_client, get_ai_model
+from uiautoagent.agent import AgentConfig, DeviceAgent, Action, ActionType
+from uiautoagent.agent.ai_utils import summarize_task
+from uiautoagent.agent.memory import TaskMemory, get_task_memory
+from uiautoagent.controller import AndroidController
+
+
+def get_system_prompt() -> str:
+    """获取系统提示词"""
+    return """你是一个手机操作专家。用户会给你一个任务和当前手机屏幕截图，你需要分析屏幕并决定下一步操作。
+
+## 利用历史经验
+用户会提供相似历史任务的执行步骤，请参考这些成功经验：
+- 优先尝试历史任务中成功的操作模式
+- 如果历史任务显示某个元素描述有效，使用相同的描述
+- 注意历史任务中的关键步骤顺序
+
+可用操作类型：
+1. tap - 点击屏幕上的元素（需要指定target描述元素，如"搜索按钮"）
+2. input - 输入文本（需要指定text内容）
+3. swipe - 滑动屏幕（需要指定direction: up/down/left/right）
+4. back - 返回上一页
+5. wait - 等待（需要指定wait_ms毫秒数）
+6. done - 任务完成（当任务已完成时）
+7. fail - 任务失败（当无法继续时）
+
+请以JSON格式返回你的决策：
+{
+  "type": "操作类型",
+  "thought": "为什么执行这个操作",
+  "target": "目标元素描述（仅tap时需要，其他操作省略此字段）",
+  "text": "输入文本（仅input时需要，其他操作省略此字段）",
+  "direction": "滑动方向（仅swipe时需要，值为up/down/left/right之一，其他操作省略此字段）",
+  "wait_ms": 等待毫秒数（仅wait时需要，默认1000，其他操作省略此字段）",
+  "return_result": true（仅done时需要，表示任务需要返回观察结果）
+  "result": "任务返回的结果或答案（仅done时需要）
+}
+
+重要：
+- 只包含你使用的操作类型所需的字段，不要包含空字符串或null值
+- 例如：tap操作只需要type、thought、target三个字段
+- 当任务需要返回观察结果时，done操作必须包含return_result和result字段
+
+注意：
+- 优先参考历史任务的成功步骤
+- 分析屏幕时要仔细，确保能找到目标元素
+- 如果找不到元素，可以尝试滑动或返回
+- 任务完成后使用done
+- 无法继续时使用fail
+- input类型操作前需要先tap对应的输入框
+- 如果任务要求返回信息（如"查看好友发了什么消息"），done时必须设置return_result:true并在result中描述结果"""
+
+
+def build_history_summary(history: list) -> str:
+    """构建历史摘要字符串"""
+    if not history:
+        return "（这是第一步，无历史记录）"
+
+    lines = []
+    for h in history:
+        status = "✅" if h["success"] else "❌"
+        action = h["action"]
+
+        # 构建动作详情
+        parts = [f"类型: {action['type']}"]
+        if action.get("thought"):
+            parts.append(f"思考: {action['thought']}")
+        if action.get("target"):
+            parts.append(f"目标: {action['target']}")
+        if action.get("text"):
+            parts.append(f"输入: {action['text']}")
+        if action.get("direction"):
+            parts.append(f"方向: {action['direction']}")
+        if action.get("wait_ms"):
+            parts.append(f"等待: {action['wait_ms']}ms")
+
+        details = ", ".join(parts)
+        obs = f" → {h['observation']}" if h.get("observation") else ""
+        lines.append(f"[步骤{h['step']}] {status} {details}{obs}")
+
+    return "\n".join(lines)
+
+
+def build_user_prompt_with_memory(
+    task: str, context: dict, memory_reference: str
+) -> str:
+    """构建用户消息（包含历史任务参考）"""
+    history_summary = build_history_summary(context["history"])
+    device_info = context["device_info"]
+
+    return f"""任务：{task}
+
+设备信息：{device_info["model"]} ({device_info["width"]}x{device_info["height"]})
+
+{memory_reference}
+
+## 当前任务执行历史
+{history_summary}
+
+## 当前屏幕
+请参考上方相似历史任务的经验，分析当前屏幕并决定下一步操作："""
+
+
+def encode_screenshot(screenshot_path: str | Path) -> str:
+    """编码截图为base64"""
+    import base64
+
+    with open(screenshot_path, "rb") as f:
+        return base64.b64encode(f.read()).decode()
+
+
+def call_ai_decision(
+    client, model: str, system_prompt: str, user_prompt: str, screenshot_b64: str
+) -> dict:
+    """调用AI决策API"""
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{screenshot_b64}"},
+                    },
+                ],
+            },
+        ],
+        response_format={"type": "json_object"},
+        max_tokens=1024,
+        temperature=0.0,
+    )
+
+    decision_text = response.choices[0].message.content
+    if not decision_text:
+        raise ValueError("AI返回空响应")
+
+    print(f"🧠 AI思考: {decision_text[:200]}...")
+
+    import json
+    return json.loads(decision_text)
+
+
+def parse_action_from_decision(decision: dict) -> Action:
+    """从AI决策解析出Action对象"""
+    action_type = ActionType(decision.get("type", "fail"))
+
+    # 构建Action参数，过滤掉空字符串
+    kwargs = {
+        "type": action_type,
+        "thought": decision.get("thought") or "",
+    }
+
+    # 只在非空时添加可选字段
+    if decision.get("target"):
+        kwargs["target"] = decision["target"]
+    if decision.get("text"):
+        kwargs["text"] = decision["text"]
+    if decision.get("direction") and decision["direction"] in (
+        "up",
+        "down",
+        "left",
+        "right",
+    ):
+        kwargs["direction"] = decision["direction"]
+    if decision.get("wait_ms"):
+        kwargs["wait_ms"] = decision["wait_ms"]
+    if decision.get("return_result"):
+        kwargs["return_result"] = True
+    if decision.get("result"):
+        kwargs["result"] = decision["result"]
+
+    return Action(**kwargs)
+
+
+def handle_task_status(
+    action: Action, agent: DeviceAgent, task: str, task_memory: TaskMemory
+) -> bool:
+    """
+    处理任务状态并保存记忆
+
+    Returns:
+        True表示任务应该结束，False表示继续执行
+    """
+    if action.type == ActionType.DONE:
+        print("\n🎉 任务完成！")
+
+        # 如果需要返回结果
+        if action.return_result and action.result:
+            print("\n📋 任务结果:")
+            print(f"   {action.result}")
+            print(f"\n📸 当前截图: {agent.get_current_screenshot()}")
+
+        agent.save_history()
+        agent.print_summary()
+
+        # 保存成功任务记忆
+        summary = summarize_task(task, agent.history, success=True)
+        task_memory.save_task(task, agent.history, success=True, summary=summary)
+        print("💾 已保存任务记忆")
+
+        return True
+
+    if action.type == ActionType.FAIL:
+        print(f"\n❌ AI认为任务无法完成: {action.thought}")
+        agent.save_history()
+        agent.print_summary()
+
+        # 保存失败任务记忆
+        summary = summarize_task(task, agent.history, success=False)
+        task_memory.save_task(task, agent.history, success=False, summary=summary)
+
+        return True
+
+    return False
+
+
+def handle_ai_error(agent: DeviceAgent, error: Exception):
+    """处理AI决策错误"""
+    print(f"❌ AI决策出错: {error}")
+    agent.step(
+        Action(
+            type=ActionType.BACK,
+            thought="AI决策出错，尝试返回",
+        )
+    )
+
+
+def execute_ai_task(agent: DeviceAgent, task: str):
+    """
+    使用AI自主执行任务，支持任务记忆复用
+
+    Args:
+        agent: 设备Agent
+        task: 任务描述
+    """
+    # 初始化AI客户端
+    client = get_ai_client()
+    model = get_ai_model()
+    max_steps = agent.config.max_steps
+
+    # 获取任务记忆
+    task_memory = get_task_memory()
+    similar_tasks = task_memory.find_similar_tasks(task)
+
+    if similar_tasks:
+        print(f"💡 找到 {len(similar_tasks)} 个相似历史任务，将作为参考:")
+        for i, task_mem in enumerate(similar_tasks, 1):
+            status = "✅" if task_mem["success"] else "❌"
+            print(f"   {i}. {status} {task_mem['task']}")
+    else:
+        print("💡 未找到相似历史任务")
+
+    # 缓存系统提示词
+    system_prompt = get_system_prompt()
+
+    for step in range(max_steps):
+        print(f"\n{'=' * 50}")
+        print(f"🤖 AI决策 - 步骤 {step + 1}/{max_steps}")
+        print(f"{'=' * 50}")
+
+        # 准备数据
+        screenshot_path = agent.get_current_screenshot()
+        context = agent.get_context_for_ai()
+        screenshot_b64 = encode_screenshot(screenshot_path)
+
+        # 构建用户消息（包含历史任务参考）
+        memory_reference = task_memory.format_for_ai(similar_tasks)
+        user_prompt = build_user_prompt_with_memory(task, context, memory_reference)
+
+        # 调用AI决策
+        try:
+            decision = call_ai_decision(
+                client, model, system_prompt, user_prompt, screenshot_b64
+            )
+            action = parse_action_from_decision(decision)
+
+            # 执行动作
+            agent.step(action)
+
+            # 检查任务状态
+            if handle_task_status(action, agent, task, task_memory):
+                return
+
+        except Exception as e:
+            handle_ai_error(agent, e)
+
+    # 达到最大步数
+    print(f"\n⚠️  达到最大步数限制 ({max_steps})，任务可能未完成")
+    agent.save_history()
+    agent.print_summary()
+
+    # 保存未完成任务记忆
+    task_memory.save_task(task, agent.history, success=False)
+
+
+def run_ai_task(
+    task: str,
+    serial: str | None = None,
+    max_steps: int = 30,
+    verbose: bool = True,
+) -> bool:
+    """
+    运行 AI 自主任务 - 便捷函数
+
+    这是主要的对外接口函数，用于执行 AI 自主任务。
+
+    Args:
+        task: 任务描述
+        serial: 设备序列号，None 表示使用第一个可用设备
+        max_steps: 最大执行步数
+        verbose: 是否打印详细日志
+
+    Returns:
+        任务是否成功完成
+
+    Example:
+        >>> from uiautoagent.agent import run_ai_task
+        >>> success = run_ai_task("修改昵称为 kitty")
+        >>> if success:
+        ...     print("任务完成")
+    """
+
+    print("=" * 50)
+    print("📱 设备Agent - AI自主决策模式")
+    print("=" * 50)
+
+    # 配置AI API
+    if not os.getenv("API_KEY"):
+        print("⚠️  未配置API_KEY")
+        return False
+
+    # 检查设备
+    devices = AndroidController.list_devices()
+    if not devices:
+        print("❌ 未检测到Android设备")
+        return False
+
+    # 选择设备
+    if serial:
+        if serial not in devices:
+            print(f"❌ 设备 {serial} 未找到")
+            return False
+        device_serial = serial
+    else:
+        device_serial = devices[0]
+
+    # 创建Controller和Agent
+    controller = AndroidController(device_serial)
+    agent = DeviceAgent(
+        controller,
+        config=AgentConfig(
+            max_steps=max_steps,
+            save_screenshots=True,
+            verbose=verbose,
+        ),
+    )
+
+    info = controller.get_device_info()
+    print(f"📋 设备信息: {info['model']} ({info['width']}x{info['height']})")
+
+    print(f"\n🎯 任务: {task}")
+
+    # 用AI澄清任务描述
+    from uiautoagent.agent.ai_utils import clarify_task
+
+    task = clarify_task(task)
+
+    print("🤖 AI将自主分析屏幕并决策每一步操作...\n")
+
+    # 执行AI自主任务
+    try:
+        execute_ai_task(agent, task)
+        return True
+    except Exception as e:
+        print(f"❌ 任务执行出错: {e}")
+        return False
+

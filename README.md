@@ -1,118 +1,57 @@
-# AI BBox Detector - 基于视觉模型的UI元素边界框检测器
+# UIAutoAgent
 
-使用 AI 视觉模型检测截图中的 UI 元素并返回边界框坐标，可用于自动化 UI 测试、RPA 等场景。
+AI 驱动的 UI 自动化框架，支持视觉定位和自主任务执行。
 
 ## 特性
 
-- 🎯 基于视觉模型的元素定位，无需依赖 DOM 结构
-- 📏 返回精确的边界框坐标 (bbox)
-- 💭 包含 AI 的思考过程，便于调试和验证
-- 🖼️ 支持自动绘制检测结果到图片
-- 🔧 兼容 OpenAI API 格式，支持多种视觉模型
+- 🎯 AI 视觉定位元素，无需 DOM
+- 🤖 自主决策执行任务
+- 🧠 任务记忆学习
+- 📱 Android 设备支持
 
 ## 安装
 
 ```bash
-# 使用 uv 安装依赖
 uv sync
-```
-
-## 配置
-
-复制 `.env.example` 为 `.env` 并配置：
-
-```bash
 cp .env.example .env
+# 编辑 .env 配置 API_KEY
 ```
 
-编辑 `.env` 文件：
-
-```env
-BASE_URL=https://api.openai.com/v1
-API_KEY=sk-xxx
-MODEL_NAME=gpt-4o
-REQUEST_TIMEOUT=30
-```
-
-**支持的视觉模型：**
-- OpenAI: `gpt-4o`, `gpt-4o-mini`
-- 兼容 OpenAI API 的其他视觉模型
-
-## 使用方法
-
-### 命令行
+## 快速开始
 
 ```bash
-# 使用默认配置
-uv run main.py
+# AI 自主执行任务
+uv run uiautoagent -m ai -t "修改昵称为 kitty"
 
-# 指定图片和查询
-uv run main.py -i screenshot.png -q "登录按钮"
-
-# 查看帮助
-uv run main.py --help
+# 其他模式
+uv run uiautoagent -m find    # 查找并点击
+uv run uiautoagent -m manual  # 手动控制
 ```
 
-### Python API
+## Python API
 
 ```python
-from bbox_detector import detect_element, draw_bbox
+from uiautoagent.detector import detect_element
+from uiautoagent.controller import AndroidController
+from uiautoagent.agent import DeviceAgent, Action, ActionType
 
-# 检测元素
+# 元素检测
 result = detect_element("screenshot.png", "登录按钮")
+print(result.bbox)
 
-if result.found:
-    print(f"找到: {result.description}")
-    print(f"坐标: {result.bbox}")
-    print(f"中心点: {result.bbox.center}")
-    print(f"思考: {result.thought}")
-
-# 绘制检测结果
-draw_bbox("screenshot.png", result, "output.png")
+# 设备自动化
+controller = AndroidController()
+agent = DeviceAgent(controller)
+agent.step(Action(type=ActionType.TAP, thought="点击", target="按钮"))
 ```
 
-### 返回结果
+## 要求
 
-```python
-class DetectionResult:
-    found: bool           # 是否找到元素
-    bbox: BBox | None     # 边界框坐标
-    description: str      # 元素描述
-    thought: str          # AI 的思考过程
+- Python 3.10+
+- 支持 Vision 的模型（已测试：doubao-seed-2.0-pro）
+- 兼容 OpenAI API 格式
+- Android 需要 ADB
 
-class BBox:
-    x1: int               # 左上角 X 坐标
-    y1: int               # 左上角 Y 坐标
-    x2: int               # 右下角 X 坐标
-    y2: int               # 右下角 Y 坐标
-    center: tuple[int, int]  # 中心点坐标
-    width: int            # 宽度
-    height: int           # 高度
-```
+## License
 
-## 项目结构
-
-```
-.
-├── bbox_detector.py    # 核心检测器模块
-├── main.py             # 命令行入口
-├── .env.example        # 环境变量示例
-├── sample.png          # 示例截图
-└── result.png          # 检测结果输出（自动生成）
-```
-
-## 示例
-
-### 输入图片 (sample.png)
-
-![sample.png](sample.png)
-
-### 检测结果 (result.png)
-
-![result.png](result.png)
-
-## 注意事项
-
-- 模型必须支持视觉能力 (vision-capable)
-- 坐标基于实际图片尺寸，会自动缩放
-- 建议使用清晰的截图以获得最佳结果
+[LICENSE](LICENSE)

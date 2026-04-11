@@ -147,6 +147,7 @@ def call_ai_decision(
     print(f"🧠 AI思考: {decision_text[:200]}...")
 
     import json
+
     return json.loads(decision_text)
 
 
@@ -384,4 +385,3 @@ def run_ai_task(
     except Exception as e:
         print(f"❌ 任务执行出错: {e}")
         return False
-

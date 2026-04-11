@@ -17,10 +17,7 @@ def test_draw_bbox_with_result(tmp_path):
     # Create a detection result
     bbox = BBox(x1=100, y1=100, x2=300, y2=200)
     result = DetectionResult(
-        found=True,
-        bbox=bbox,
-        description="测试按钮",
-        thought="找到测试按钮"
+        found=True, bbox=bbox, description="测试按钮", thought="找到测试按钮"
     )
 
     # Draw bbox
@@ -47,10 +44,7 @@ def test_draw_bbox_without_description(tmp_path):
     # Create a detection result without description
     bbox = BBox(x1=50, y1=50, x2=150, y2=150)
     result = DetectionResult(
-        found=True,
-        bbox=bbox,
-        description=None,
-        thought="找到目标"
+        found=True, bbox=bbox, description=None, thought="找到目标"
     )
 
     # Draw bbox
@@ -71,10 +65,7 @@ def test_draw_bbox_not_found(tmp_path):
 
     # Create a detection result with no bbox
     result = DetectionResult(
-        found=False,
-        bbox=None,
-        description=None,
-        thought="未找到元素"
+        found=False, bbox=None, description=None, thought="未找到元素"
     )
 
     # Draw bbox (should not draw anything)
@@ -97,10 +88,7 @@ def test_draw_bbox_no_output_file(tmp_path):
     # Create a detection result
     bbox = BBox(x1=100, y1=100, x2=300, y2=200)
     result = DetectionResult(
-        found=True,
-        bbox=bbox,
-        description="按钮",
-        thought="找到按钮"
+        found=True, bbox=bbox, description="按钮", thought="找到按钮"
     )
 
     # Draw bbox without output path

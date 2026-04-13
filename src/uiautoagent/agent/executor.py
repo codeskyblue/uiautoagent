@@ -5,11 +5,23 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from uiautoagent import get_ai_client, get_ai_model
 from uiautoagent.agent import AgentConfig, DeviceAgent, Action, ActionType
 from uiautoagent.agent.ai_utils import summarize_task
 from uiautoagent.agent.memory import TaskMemory, get_task_memory
 from uiautoagent.controller import AndroidController
+
+
+class TaskResult(BaseModel):
+    """AI任务执行结果"""
+
+    success: bool  # 任务是否成功完成
+    result: str | None = None  # 任务执行结果（如"有5个好友"），失败时为错误信息
+
+    class Config:
+        use_enum_values = True
 
 
 def get_system_prompt() -> str:
@@ -25,7 +37,9 @@ def get_system_prompt() -> str:
 可用操作类型：
 1. tap - 点击屏幕上的元素（需要指定target描述元素，如"搜索按钮"）
 2. input - 输入文本（需要指定text内容）
-3. swipe - 滑动屏幕（需要指定direction: up/down/left/right）
+3. swipe - 滑动屏幕
+   - 方式1：指定direction: up/down/left/right （适用于整体的滑动，区域滑动请使用方式2）
+   - 方式2：指定swipe_start和swipe_end来描述起始和结束位置（如从"头像图标"滑动到"设置按钮"）
 4. back - 返回上一页
 5. wait - 等待（需要指定wait_ms毫秒数）
 6. done - 任务完成（当任务已完成时）
@@ -37,7 +51,9 @@ def get_system_prompt() -> str:
   "thought": "为什么执行这个操作",
   "target": "目标元素描述（仅tap时需要，其他操作省略此字段）",
   "text": "输入文本（仅input时需要，其他操作省略此字段）",
-  "direction": "滑动方向（仅swipe时需要，值为up/down/left/right之一，其他操作省略此字段）",
+  "direction": "滑动方向（仅swipe按方向滑动时需要，值为up/down/left/right之一，其他操作省略此字段）",
+  "swipe_start": "滑动起始位置描述（仅swipe按位置描述时需要，与swipe_end配合使用）",
+  "swipe_end": "滑动结束位置描述（仅swipe按位置描述时需要，与swipe_start配合使用）",
   "wait_ms": 等待毫秒数（仅wait时需要，默认1000，其他操作省略此字段）",
   "return_result": true（仅done时需要，表示任务需要返回观察结果）
   "result": "任务返回的结果或答案（仅done时需要）
@@ -46,6 +62,7 @@ def get_system_prompt() -> str:
 重要：
 - 只包含你使用的操作类型所需的字段，不要包含空字符串或null值
 - 例如：tap操作只需要type、thought、target三个字段
+- swipe操作可以选择direction或swipe_start+swipe_end，不要同时提供
 - 当任务需要返回观察结果时，done操作必须包含return_result和result字段
 
 注意：
@@ -55,7 +72,12 @@ def get_system_prompt() -> str:
 - 任务完成后使用done
 - 无法继续时使用fail
 - input类型操作前需要先tap对应的输入框
-- 如果任务要求返回信息（如"查看好友发了什么消息"），done时必须设置return_result:true并在result中描述结果"""
+- 如果任务要求返回信息（如"查看好友发了什么消息"），done时必须设置return_result:true并在result中描述结果
+
+**避免重复失败：**
+- 如果同样的操作（如点击某个元素、向某个方向滑动）连续失败超过2次，必须立即更换思路
+- 例如：如果点击"设置按钮"3次都失败，尝试：1)换种描述（如"齿轮图标"）；2)先滑动页面再找；3)考虑从其他入口进入
+- 重复同样的无效操作是浪费步数，观察失败原因后必须调整策略"""
 
 
 def build_history_summary(history: list) -> str:
@@ -78,6 +100,8 @@ def build_history_summary(history: list) -> str:
             parts.append(f"输入: {action['text']}")
         if action.get("direction"):
             parts.append(f"方向: {action['direction']}")
+        if action.get("swipe_start") and action.get("swipe_end"):
+            parts.append(f"滑动: {action['swipe_start']} → {action['swipe_end']}")
         if action.get("wait_ms"):
             parts.append(f"等待: {action['wait_ms']}ms")
 
@@ -173,6 +197,10 @@ def parse_action_from_decision(decision: dict) -> Action:
         "right",
     ):
         kwargs["direction"] = decision["direction"]
+    if decision.get("swipe_start"):
+        kwargs["swipe_start"] = decision["swipe_start"]
+    if decision.get("swipe_end"):
+        kwargs["swipe_end"] = decision["swipe_end"]
     if decision.get("wait_ms"):
         kwargs["wait_ms"] = decision["wait_ms"]
     if decision.get("return_result"):
@@ -185,20 +213,22 @@ def parse_action_from_decision(decision: dict) -> Action:
 
 def handle_task_status(
     action: Action, agent: DeviceAgent, task: str, task_memory: TaskMemory
-) -> bool:
+) -> TaskResult | None:
     """
     处理任务状态并保存记忆
 
     Returns:
-        True表示任务应该结束，False表示继续执行
+        TaskResult表示任务应该结束，None表示继续执行
     """
     if action.type == ActionType.DONE:
         print("\n🎉 任务完成！")
 
+        result = None
         # 如果需要返回结果
         if action.return_result and action.result:
+            result = action.result
             print("\n📋 任务结果:")
-            print(f"   {action.result}")
+            print(f"   {result}")
             print(f"\n📸 当前截图: {agent.get_current_screenshot()}")
 
         agent.save_history()
@@ -209,7 +239,7 @@ def handle_task_status(
         task_memory.save_task(task, agent.history, success=True, summary=summary)
         print("💾 已保存任务记忆")
 
-        return True
+        return TaskResult(success=True, result=result)
 
     if action.type == ActionType.FAIL:
         print(f"\n❌ AI认为任务无法完成: {action.thought}")
@@ -220,9 +250,9 @@ def handle_task_status(
         summary = summarize_task(task, agent.history, success=False)
         task_memory.save_task(task, agent.history, success=False, summary=summary)
 
-        return True
+        return TaskResult(success=False, result=action.thought)
 
-    return False
+    return None
 
 
 def handle_ai_error(agent: DeviceAgent, error: Exception):
@@ -236,13 +266,16 @@ def handle_ai_error(agent: DeviceAgent, error: Exception):
     )
 
 
-def execute_ai_task(agent: DeviceAgent, task: str):
+def execute_ai_task(agent: DeviceAgent, task: str) -> TaskResult:
     """
     使用AI自主执行任务，支持任务记忆复用
 
     Args:
         agent: 设备Agent
         task: 任务描述
+
+    Returns:
+        TaskResult: 任务执行结果
     """
     # 初始化AI客户端
     client = get_ai_client()
@@ -289,8 +322,9 @@ def execute_ai_task(agent: DeviceAgent, task: str):
             agent.step(action)
 
             # 检查任务状态
-            if handle_task_status(action, agent, task, task_memory):
-                return
+            result = handle_task_status(action, agent, task, task_memory)
+            if result is not None:
+                return result
 
         except Exception as e:
             handle_ai_error(agent, e)
@@ -303,13 +337,15 @@ def execute_ai_task(agent: DeviceAgent, task: str):
     # 保存未完成任务记忆
     task_memory.save_task(task, agent.history, success=False)
 
+    return TaskResult(success=False, result=f"达到最大步数限制 ({max_steps})")
+
 
 def run_ai_task(
     task: str,
     serial: str | None = None,
     max_steps: int = 30,
     verbose: bool = True,
-) -> bool:
+) -> TaskResult:
     """
     运行 AI 自主任务 - 便捷函数
 
@@ -322,35 +358,30 @@ def run_ai_task(
         verbose: 是否打印详细日志
 
     Returns:
-        任务是否成功完成
+        TaskResult: 任务执行结果，包含 success 和 result 字段
 
     Example:
         >>> from uiautoagent.agent import run_ai_task
-        >>> success = run_ai_task("修改昵称为 kitty")
-        >>> if success:
-        ...     print("任务完成")
+        >>> result = run_ai_task("查看有多少个好友")
+        >>> if result.success:
+        ...     print(f"任务完成: {result.result}")
     """
 
     print("=" * 50)
     print("📱 设备Agent - AI自主决策模式")
     print("=" * 50)
 
-    # 配置AI API
-    if not os.getenv("API_KEY"):
-        print("⚠️  未配置API_KEY")
-        return False
-
     # 检查设备
     devices = AndroidController.list_devices()
     if not devices:
         print("❌ 未检测到Android设备")
-        return False
+        return TaskResult(success=False, result="未检测到Android设备")
 
     # 选择设备
     if serial:
         if serial not in devices:
             print(f"❌ 设备 {serial} 未找到")
-            return False
+            return TaskResult(success=False, result=f"设备 {serial} 未找到")
         device_serial = serial
     else:
         device_serial = devices[0]
@@ -368,6 +399,7 @@ def run_ai_task(
 
     info = controller.get_device_info()
     print(f"📋 设备信息: {info['model']} ({info['width']}x{info['height']})")
+    print(f"📁 任务目录: {agent.task_dir}")
 
     print(f"\n🎯 任务: {task}")
 
@@ -380,8 +412,7 @@ def run_ai_task(
 
     # 执行AI自主任务
     try:
-        execute_ai_task(agent, task)
-        return True
+        return execute_ai_task(agent, task)
     except Exception as e:
         print(f"❌ 任务执行出错: {e}")
-        return False
+        return TaskResult(success=False, result=str(e))

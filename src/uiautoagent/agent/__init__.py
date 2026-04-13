@@ -8,7 +8,7 @@ from uiautoagent.agent.device_agent import (
     DeviceAgent,
     TaskStep,
 )
-from uiautoagent.agent.executor import execute_ai_task, run_ai_task
+from uiautoagent.agent.executor import TaskResult, execute_ai_task, run_ai_task
 from uiautoagent.agent.memory import TaskMemory, get_task_memory
 
 __all__ = [
@@ -26,6 +26,7 @@ __all__ = [
     "clarify_task",
     "compress_markdown",
     # Executor
+    "TaskResult",
     "execute_ai_task",
     "run_ai_task",
 ]

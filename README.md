@@ -36,7 +36,16 @@ uv run uiautoagent -m manual  # 手动控制
 from uiautoagent import run_ai_task
 
 # 最简单的用法 - AI 自主完成任务
-success = run_ai_task("修改昵称为 kitty")
+result = run_ai_task("修改昵称为 kitty")
+if result.success:
+    print(f"任务完成: {result.result}")
+else:
+    print(f"任务失败: {result.result}")
+
+# 如果任务需要返回观察结果（如"查看有多少个好友"）
+result = run_ai_task("查看有多少个好友")
+if result.success:
+    print(f"好友数量: {result.result}")  # 例如: "有5个好友"
 ```
 
 ### 元素检测

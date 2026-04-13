@@ -3,25 +3,18 @@
 from __future__ import annotations
 
 import base64
-import os
 from pathlib import Path
 from typing import Type, TypeVar
 
 import json
 
-from dotenv import load_dotenv
 from openai import OpenAI
 from PIL import Image
 from pydantic import BaseModel, ValidationError
 
+from uiautoagent.ai import get_ai_client, get_ai_model
+
 _T = TypeVar("_T", bound=BaseModel)
-
-load_dotenv()
-
-BASE_URL = os.getenv("BASE_URL", "").rstrip("/")
-API_KEY = os.getenv("API_KEY", "")
-MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o")
-REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "30"))
 
 
 class BBox(BaseModel):
@@ -194,10 +187,6 @@ def _encode_image(image_source: str | Path) -> tuple[str, str]:
 def detect_element(
     image_source: str | Path,
     query: str,
-    *,
-    base_url: str | None = None,
-    api_key: str | None = None,
-    model: str | None = None,
 ) -> DetectionResult:
     """
     在图片中检测指定元素并返回其bbox。
@@ -205,20 +194,9 @@ def detect_element(
     Args:
         image_source: 图片路径
         query: 要查找的元素描述，如"登录按钮"、"搜索框"
-        base_url: 覆盖环境变量中的BASE_URL
-        api_key: 覆盖环境变量中的API_KEY
-        model: 覆盖环境变量中的MODEL_NAME
     """
-    key = api_key or API_KEY
-    if not key:
-        raise ValueError("API_KEY未设置，请在.env中配置或通过参数传入")
-
-    client = OpenAI(
-        base_url=base_url or BASE_URL,
-        api_key=key,
-        timeout=REQUEST_TIMEOUT,
-    )
-    model_name = model or MODEL_NAME
+    client = get_ai_client()
+    model_name = get_ai_model()
 
     b64, media_type = _encode_image(image_source)
     img = Image.open(image_source)
@@ -291,3 +269,121 @@ def draw_bbox(
     if output:
         img.save(output)
     return img
+
+
+# --- 多元素检测支持 ---
+class MultiElementLocation(BaseModel):
+    """多元素检测结果"""
+
+    thought: str | None = None
+    results: dict[str, ElementLocation]  # key: query, value: 检测结果
+
+
+_multi_example = MultiElementLocation(
+    thought="成功定位所有元素",
+    results={
+        "起始按钮": ElementLocation(
+            found=True, bbox=[100, 200, 300, 250], description="起始按钮"
+        ),
+        "结束按钮": ElementLocation(
+            found=True, bbox=[400, 500, 600, 550], description="结束按钮"
+        ),
+    },
+)
+
+_MULTI_EXAMPLES = f"""
+输出示例（多元素检测）：
+{_multi_example.model_dump_json(ensure_ascii=False)}
+"""
+
+
+def detect_elements(
+    image_source: str | Path,
+    queries: list[str],
+) -> dict[str, DetectionResult]:
+    """
+    在图片中同时检测多个元素并返回其bbox。
+
+    Args:
+        image_source: 图片路径
+        queries: 要查找的元素描述列表，如["起始按钮", "结束按钮"]
+
+    Returns:
+        dict[str, DetectionResult]: key是查询字符串，value是对应的检测结果
+    """
+    client = get_ai_client()
+    model_name = get_ai_model()
+
+    b64, media_type = _encode_image(image_source)
+    img = Image.open(image_source)
+    w, h = img.size
+
+    # 构建查询文本
+    query_text = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(queries))
+
+    response = client.chat.completions.create(
+        model=model_name,
+        messages=[
+            {
+                "role": "system",
+                "content": f"""你是一个UI元素定位专家。用户会给你一张截图和多个需要查找的元素描述，你需要在图片中定位所有元素并返回各自的边界框坐标。
+
+假设图片尺寸统一为1000x1000，所有坐标均基于此尺寸给出。
+请以JSON格式返回结果，包含你的思考过程(thought)。
+results字段中，key为元素描述，value为该元素的检测结果。
+如果找不到对应元素，将对应元素的found设为false，bbox设为null。
+
+{_MULTI_EXAMPLES}""",
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"请同时定位以下元素：\n{query_text}",
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{media_type};base64,{b64}"},
+                    },
+                ],
+            },
+        ],
+        response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": "multi_element_location",
+                "schema": MultiElementLocation.model_json_schema(),
+            },
+        },
+        max_tokens=2048,
+        temperature=0.0,
+    )
+
+    raw = response.choices[0].message.content
+    print("Raw multi-detect:", raw)
+    loc = safe_validate_json(
+        raw, MultiElementLocation, client=client, model_name=model_name
+    )
+
+    # 转换结果
+    final_results: dict[str, DetectionResult] = {}
+    for query, element_loc in loc.results.items():
+        bbox = None
+        if element_loc.found and element_loc.bbox:
+            x1, y1, x2, y2 = element_loc.bbox
+            bbox = BBox(
+                x1=max(0, int(x1 * w / 1000)),
+                y1=max(0, int(y1 * h / 1000)),
+                x2=min(w, int(x2 * w / 1000)),
+                y2=min(h, int(y2 * h / 1000)),
+            )
+
+        final_results[query] = DetectionResult(
+            found=element_loc.found,
+            bbox=bbox,
+            description=element_loc.description,
+            thought=element_loc.thought,
+        )
+
+    return final_results

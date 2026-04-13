@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 
 from uiautoagent.agent.device_agent import ActionType
@@ -21,9 +20,10 @@ def summarize_task(task: str, history: list, success: bool) -> str:
         Markdown格式的任务总结
     """
     try:
-        from uiautoagent.ai import get_ai_client
+        from uiautoagent.ai import get_ai_client, get_ai_model
 
         client = get_ai_client()
+        model = get_ai_model()
 
         # 构建操作历史摘要
         steps_summary = []
@@ -95,7 +95,7 @@ def summarize_task(task: str, history: list, success: bool) -> str:
 3. 紧凑格式，列表项之间不要空行"""
 
         response = client.chat.completions.create(
-            model=os.getenv("MODEL_NAME", "gpt-4o"),
+            model=model,
             messages=[
                 {
                     "role": "system",

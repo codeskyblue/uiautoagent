@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 
+import httpx
 from openai import OpenAI
 
 
@@ -12,6 +13,8 @@ from openai import OpenAI
 def get_ai_client() -> OpenAI:
     """
     获取 AI 客户端实例（单例模式）
+
+    注意：此客户端会忽略系统代理设置（trust_env=False）
 
     Returns:
         OpenAI 客户端实例
@@ -21,9 +24,13 @@ def get_ai_client() -> OpenAI:
         >>> client = get_ai_client()
         >>> model = get_ai_model()
     """
+    # 创建不使用系统代理的 HTTP 客户端
+    http_client = httpx.Client(trust_env=False)
+
     return OpenAI(
         base_url=os.getenv("BASE_URL", "https://api.openai.com/v1"),
         api_key=os.getenv("API_KEY"),
+        http_client=http_client,
     )
 
 

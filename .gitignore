@@ -224,3 +224,6 @@ result.png
 screenshots/
 task_*.json
 task_*.yaml
+
+# Task execution directories
+tasks/

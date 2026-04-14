@@ -288,7 +288,7 @@ class DeviceAgent:
             f"任务执行摘要 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "=" * 60,
             f"总步骤数: {len(self.history)}",
-            f"截图目录: screenshots/",
+            "截图目录: screenshots/",
             "",
             "步骤详情:",
             "-" * 60,

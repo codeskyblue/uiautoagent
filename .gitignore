@@ -227,3 +227,4 @@ task_*.yaml
 
 # Task execution directories
 tasks/
+devimages/

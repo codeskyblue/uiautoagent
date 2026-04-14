@@ -7,7 +7,7 @@ AI 驱动的 UI 自动化框架，支持视觉定位和自主任务执行。
 - 🎯 AI 视觉定位元素，无需 DOM
 - 🤖 自主决策执行任务
 - 🧠 任务记忆学习
-- 📱 Android 设备支持
+- 📱 Android / iOS 设备支持
 
 ## 安装
 
@@ -22,6 +22,9 @@ cp .env.example .env
 ```bash
 # AI 自主执行任务
 uv run uiautoagent -m ai -t "修改昵称为 kitty"
+
+# 指定iOS设备
+uv run uiautoagent -m ai -t "修改昵称为 kitty" -p ios
 
 # 其他模式
 uv run uiautoagent -m find    # 查找并点击
@@ -63,14 +66,23 @@ if result.found:
 ### 设备控制
 
 ```python
-from uiautoagent import AndroidController, SwipeDirection
+from uiautoagent import AndroidController, IOSController, SwipeDirection
 
-# 控制设备
+# 控制Android设备
 controller = AndroidController()
 controller.tap(500, 1000)  # 点击坐标
 controller.swipe_direction(SwipeDirection.UP)  # 向上滑动
 controller.input_text("hello")  # 输入文本
 controller.back()  # 返回
+
+# 控制iOS设备
+controller = IOSController()  # 自动检测USB设备
+# 或指定URL连接: IOSController(url="http://localhost:8100")
+# 或指定UDID: IOSController(udid="00008101-...")
+controller.tap(500, 1000)
+controller.swipe_direction(SwipeDirection.UP)
+controller.input_text("hello")
+controller.home()  # Home键
 ```
 
 ### Agent 手动控制
@@ -118,6 +130,7 @@ AI 视觉定位可以精准识别屏幕上的 UI 元素：
 - 支持 Vision 的模型（已测试：doubao-seed-2.0-pro）
 - 兼容 OpenAI API 格式
 - Android 需要 ADB
+- iOS 需要 WebDriverAgent 和 [wdapy](https://github.com/openatx/wdapy)，设备列表需要 `idevice_id`（libimobiledevice）或 `tidevice`
 
 ## License
 

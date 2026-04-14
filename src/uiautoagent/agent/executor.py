@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -11,7 +10,38 @@ from uiautoagent import get_ai_client, get_ai_model
 from uiautoagent.agent import AgentConfig, DeviceAgent, Action, ActionType
 from uiautoagent.agent.ai_utils import summarize_task
 from uiautoagent.agent.memory import TaskMemory, get_task_memory
-from uiautoagent.controller import AndroidController
+from uiautoagent.controller import AndroidController, IOSController
+
+
+def _setup_android_device(serial: str | None) -> tuple:
+    """设置Android设备，返回 (controller, serial) 或 (None, None)"""
+    devices = AndroidController.list_devices()
+    if not devices:
+        print("❌ 未检测到Android设备")
+        return None, None
+
+    if serial:
+        if serial not in devices:
+            print(f"❌ 设备 {serial} 未找到")
+            return None, None
+        device_serial = serial
+    else:
+        device_serial = devices[0]
+
+    return AndroidController(device_serial), device_serial
+
+
+def _setup_ios_device(udid: str | None) -> tuple:
+    """设置iOS设备，返回 (controller, udid) 或 (None, None)"""
+    if udid:
+        return IOSController(udid=udid), udid
+
+    devices = IOSController.list_devices()
+    if not devices:
+        print("❌ 未检测到iOS设备")
+        return None, None
+
+    return IOSController(udid=devices[0]), devices[0]
 
 
 class TaskResult(BaseModel):
@@ -345,6 +375,7 @@ def run_ai_task(
     serial: str | None = None,
     max_steps: int = 30,
     verbose: bool = True,
+    platform: str = "android",
 ) -> TaskResult:
     """
     运行 AI 自主任务 - 便捷函数
@@ -353,9 +384,10 @@ def run_ai_task(
 
     Args:
         task: 任务描述
-        serial: 设备序列号，None 表示使用第一个可用设备
+        serial: 设备序列号/UDID，None 表示使用第一个可用设备
         max_steps: 最大执行步数
         verbose: 是否打印详细日志
+        platform: 设备平台，"android" 或 "ios"
 
     Returns:
         TaskResult: 任务执行结果，包含 success 和 result 字段
@@ -371,23 +403,15 @@ def run_ai_task(
     print("📱 设备Agent - AI自主决策模式")
     print("=" * 50)
 
-    # 检查设备
-    devices = AndroidController.list_devices()
-    if not devices:
-        print("❌ 未检测到Android设备")
-        return TaskResult(success=False, result="未检测到Android设备")
-
-    # 选择设备
-    if serial:
-        if serial not in devices:
-            print(f"❌ 设备 {serial} 未找到")
-            return TaskResult(success=False, result=f"设备 {serial} 未找到")
-        device_serial = serial
+    platform = platform.lower()
+    if platform == "ios":
+        controller, device_id = _setup_ios_device(serial)
     else:
-        device_serial = devices[0]
+        controller, device_id = _setup_android_device(serial)
 
-    # 创建Controller和Agent
-    controller = AndroidController(device_serial)
+    if controller is None:
+        return TaskResult(success=False, result=f"未检测到{platform}设备")
+
     agent = DeviceAgent(
         controller,
         config=AgentConfig(

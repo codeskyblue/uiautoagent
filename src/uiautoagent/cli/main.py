@@ -6,25 +6,36 @@ import argparse
 
 from uiautoagent.agent import Action, ActionType, AgentConfig, DeviceAgent
 from uiautoagent.agent.executor import run_ai_task
-from uiautoagent.controller import AndroidController
+from uiautoagent.controller import AndroidController, IOSController
 
 
-def demo_manual_control():
+def demo_manual_control(platform: str = "android", serial: str | None = None):
     """演示手动控制Agent执行任务（适用于已知步骤的任务）"""
     print("=" * 50)
     print("📱 设备Agent - 手动控制模式")
     print("=" * 50)
 
     # 检查设备
-    devices = AndroidController.list_devices()
-    if not devices:
-        print("❌ 未检测到Android设备，请确保ADB已连接")
-        return
+    if platform == "ios":
+        if serial:
+            controller = IOSController(udid=serial)
+        else:
+            devices = IOSController.list_devices()
+            if not devices:
+                print("❌ 未检测到iOS设备")
+                return
+            controller = IOSController(udid=devices[0])
+    else:
+        devices = AndroidController.list_devices()
+        if not devices:
+            print("❌ 未检测到Android设备，请确保ADB已连接")
+            return
+        serial = serial or devices[0]
+        controller = AndroidController(serial)
 
-    print(f"✅ 检测到设备: {devices[0]}")
+    print("✅ 检测到设备")
 
     # 创建Agent
-    controller = AndroidController(devices[0])
     agent = DeviceAgent(
         controller,
         config=AgentConfig(
@@ -73,36 +84,53 @@ def demo_manual_control():
     agent.print_summary()
 
 
-def demo_ai_assisted_task(task: str = "修改昵称为kitty"):
+def demo_ai_assisted_task(
+    task: str = "修改昵称为kitty",
+    platform: str = "android",
+    serial: str | None = None,
+):
     """
     演示AI辅助任务执行 - AI自主决策并完成任务
 
     Args:
         task: 要执行的任务描述
+        platform: 设备平台
+        serial: 设备序列号/UDID
     """
-    run_ai_task(task)
+    run_ai_task(task, serial=serial, platform=platform)
 
 
-def demo_find_and_click():
+def demo_find_and_click(
+    target: str = "返回按钮", platform: str = "android", serial: str | None = None
+):
     """演示简单的查找并点击"""
     print("=" * 50)
     print("📱 设备Agent - 查找并点击")
     print("=" * 50)
 
-    devices = AndroidController.list_devices()
-    if not devices:
-        print("❌ 未检测到Android设备")
-        return
-
-    controller = AndroidController(devices[0])
+    if platform == "ios":
+        if serial:
+            controller = IOSController(udid=serial)
+        else:
+            devices = IOSController.list_devices()
+            if not devices:
+                print("❌ 未检测到iOS设备")
+                return
+            controller = IOSController(udid=devices[0])
+    else:
+        devices = AndroidController.list_devices()
+        if not devices:
+            print("❌ 未检测到Android设备")
+            return
+        controller = AndroidController(devices[0])
     agent = DeviceAgent(controller)
 
     # 查找并点击元素
     agent.step(
         Action(
             type=ActionType.TAP,
-            thought="查找并点击返回按钮",
-            target="返回按钮",
+            thought=f"查找并点击{target}",
+            target=target,
         )
     )
 
@@ -126,13 +154,20 @@ def main():
         "-t",
         "--task",
         default="修改昵称为kitty",
-        help="要执行的任务描述（ai模式使用）",
+        help="要执行的任务描述（ai/find模式使用）",
     )
     parser.add_argument(
         "-s",
         "--serial",
         default=None,
-        help="指定设备序列号（默认使用第一个可用设备）",
+        help="指定设备序列号/UDID（默认使用第一个可用设备）",
+    )
+    parser.add_argument(
+        "-p",
+        "--platform",
+        choices=["android", "ios"],
+        default="android",
+        help="设备平台",
     )
     parser.add_argument(
         "--max-steps",
@@ -143,11 +178,15 @@ def main():
     args = parser.parse_args()
 
     if args.mode == "manual":
-        demo_manual_control()
+        demo_manual_control(platform=args.platform, serial=args.serial)
     elif args.mode == "ai":
-        demo_ai_assisted_task(args.task)
+        demo_ai_assisted_task(
+            args.task, platform=args.platform, serial=args.serial
+        )
     else:
-        demo_find_and_click()
+        demo_find_and_click(
+            target=args.task, platform=args.platform, serial=args.serial
+        )
 
 
 if __name__ == "__main__":

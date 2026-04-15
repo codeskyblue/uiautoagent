@@ -12,6 +12,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from uiautoagent.controller.base import DeviceController, SwipeDirection
+from uiautoagent.detector import DetectionResult
 
 
 class ActionType(str, Enum):
@@ -24,6 +25,73 @@ class ActionType(str, Enum):
     WAIT = "wait"  # 等待
     DONE = "done"  # 任务完成
     FAIL = "fail"  # 任务失败
+
+
+class ActionDetail(BaseModel):
+    """操作详情（坐标等可视化信息）"""
+
+    tap_position: tuple[int, int] | None = None
+    swipe_start: tuple[int, int] | None = None
+    swipe_end: tuple[int, int] | None = None
+    swipe_direction: SwipeDirection | None = None
+    is_back: bool = False
+
+    class Config:
+        use_enum_values = True
+
+
+class RecordingController(DeviceController):
+    """代理模式的Controller包装，记录操作坐标用于可视化报告"""
+
+    def __init__(self, inner: DeviceController):
+        self._inner = inner
+        self.last_detail: ActionDetail = ActionDetail()
+
+    def __getattr__(self, name: str):
+        return getattr(self._inner, name)
+
+    def get_device_info(self) -> dict:
+        return self._inner.get_device_info()
+
+    def tap(self, x: int, y: int) -> None:
+        self.last_detail = ActionDetail(tap_position=(x, y))
+        self._inner.tap(x, y)
+
+    def swipe(self, x1: int, y1: int, x2: int, y2: int, duration_ms: int = 300) -> None:
+        self.last_detail = ActionDetail(swipe_start=(x1, y1), swipe_end=(x2, y2))
+        self._inner.swipe(x1, y1, x2, y2, duration_ms)
+
+    def swipe_direction(self, direction: SwipeDirection, ratio: float = 0.5, duration_ms: int = 300) -> None:
+        self.last_detail = ActionDetail(swipe_direction=direction)
+        self._inner.swipe_direction(direction, ratio, duration_ms)
+
+    def back(self) -> None:
+        self.last_detail = ActionDetail(is_back=True)
+        self._inner.back()
+
+    def home(self) -> None:
+        self._inner.home()
+
+    def input_text(self, text: str) -> None:
+        self.last_detail = ActionDetail()
+        self._inner.input_text(text)
+
+    def clear_text(self, length: int = 100) -> None:
+        self._inner.clear_text(length)
+
+    def press_key(self, keycode: int) -> None:
+        self._inner.press_key(keycode)
+
+    def screenshot(self, output_path: str | Path) -> Path:
+        return self._inner.screenshot(output_path)
+
+    def tap_bbox(self, bbox) -> None:
+        x, y = bbox.center
+        self.tap(x, y)
+
+    @staticmethod
+    def list_devices() -> list[str]:
+        return DeviceController.list_devices()
 
 
 class Action(BaseModel):
@@ -72,6 +140,7 @@ class TaskStep(BaseModel):
     screenshot_path: str
     action: Action
     observation: str  # 执行后的观察结果
+    action_detail: ActionDetail | None = None  # 操作详情（坐标等）
     success: bool
     timestamp: float
 
@@ -103,7 +172,7 @@ class DeviceAgent:
             controller: 设备控制器（Android/iOS等）
             config: Agent配置
         """
-        self.controller = controller
+        self.controller = RecordingController(controller)
         self.config = config or AgentConfig()
         self.history: list[TaskStep] = []
         self.step_count = 0
@@ -130,43 +199,34 @@ class DeviceAgent:
         if self.config.verbose:
             print(message)
 
-    def _detect_and_tap(self, screenshot_path: Path, target: str) -> tuple[bool, str]:
-        """检测并点击元素"""
+    def _detect_and_tap(
+        self, screenshot_path: Path, target: str
+    ) -> DetectionResult:
+        """检测并点击元素，返回检测结果"""
         from uiautoagent.detector import detect_element
 
         result = detect_element(screenshot_path, target)
         if result.found and result.bbox:
             self.controller.tap_bbox(result.bbox)
-            return True, f"已点击: {result.description or target}"
-        return False, f"未找到元素: {target}"
+        return result
 
     def _detect_and_swipe(
         self, screenshot_path: Path, start: str, end: str
-    ) -> tuple[bool, str]:
-        """检测起始和结束位置并执行滑动（一次API调用同时检测两个元素）"""
+    ) -> dict[str, DetectionResult]:
+        """检测起始和结束位置并执行滑动，返回检测结果"""
         from uiautoagent.detector import detect_elements
 
-        # 一次API调用同时检测起始和结束位置
         results = detect_elements(screenshot_path, [start, end])
 
         start_result = results.get(start)
         end_result = results.get(end)
 
-        if not start_result or not start_result.found or not start_result.bbox:
-            return False, f"未找到起始位置: {start}"
+        if start_result and start_result.found and start_result.bbox and end_result and end_result.found and end_result.bbox:
+            x1, y1 = start_result.bbox.center
+            x2, y2 = end_result.bbox.center
+            self.controller.swipe(x1, y1, x2, y2)
 
-        if not end_result or not end_result.found or not end_result.bbox:
-            return False, f"未找到结束位置: {end}"
-
-        # 获取中心点坐标
-        x1, y1 = start_result.bbox.center
-        x2, y2 = end_result.bbox.center
-
-        self.controller.swipe(x1, y1, x2, y2)
-        return (
-            True,
-            f"已从 {start_result.description or start} 滑动到 {end_result.description or end}",
-        )
+        return results
 
     def _execute_action(self, action: Action, screenshot_path: Path) -> str:
         """执行动作并返回观察结果"""
@@ -177,8 +237,10 @@ class DeviceAgent:
                     self.controller.tap(x, y)
                     return f"已点击坐标 ({x}, {y})"
                 elif action.target:
-                    success, msg = self._detect_and_tap(screenshot_path, action.target)
-                    return msg
+                    result = self._detect_and_tap(screenshot_path, action.target)
+                    if result.found:
+                        return f"已点击: {result.description or action.target}"
+                    return f"未找到元素: {action.target}"
 
             elif action.type == ActionType.INPUT:
                 if action.text:
@@ -188,10 +250,16 @@ class DeviceAgent:
 
             elif action.type == ActionType.SWIPE:
                 if action.swipe_start and action.swipe_end:
-                    success, msg = self._detect_and_swipe(
+                    results = self._detect_and_swipe(
                         screenshot_path, action.swipe_start, action.swipe_end
                     )
-                    return msg
+                    start_r = results.get(action.swipe_start)
+                    end_r = results.get(action.swipe_end)
+                    if not start_r or not start_r.found or not start_r.bbox:
+                        return f"未找到起始位置: {action.swipe_start}"
+                    if not end_r or not end_r.found or not end_r.bbox:
+                        return f"未找到结束位置: {action.swipe_end}"
+                    return f"已从 {start_r.description or action.swipe_start} 滑动到 {end_r.description or action.swipe_end}"
                 elif action.direction:
                     self.controller.swipe_direction(action.direction)
                     return f"已向{action.direction}滑动"
@@ -243,11 +311,16 @@ class DeviceAgent:
         elapsed = time.time() - step_start
 
         # 记录步骤
+        detail = None
+        if isinstance(self.controller, RecordingController):
+            detail = self.controller.last_detail
+
         step = TaskStep(
             step_number=self.step_count,
             screenshot_path=str(screenshot_path),
             action=action,
             observation=observation,
+            action_detail=detail,
             success=success,
             timestamp=time.time(),
         )
@@ -302,6 +375,16 @@ class DeviceAgent:
 
         # 同时保存可读的文本摘要
         self._save_text_summary()
+
+        # 生成HTML可视化报告
+        self._generate_html_report()
+
+    def _generate_html_report(self):
+        """生成HTML可视化报告"""
+        from uiautoagent.agent.report import generate_html_report
+
+        report_path = generate_html_report(self.history, self.task_dir)
+        self._log(f"📊 HTML报告已保存至: {report_path}")
 
     def _save_text_summary(self):
         """保存可读的文本摘要"""

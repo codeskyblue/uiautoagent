@@ -33,6 +33,7 @@ class IOSController(DeviceController):
         self._client: wdapy.AppiumClient | None = None
         self._device_info: dict | None = None
         self._window_size: tuple[int, int] | None = None
+        self._scale: float | None = None
 
     @property
     def client(self) -> wdapy.AppiumClient:
@@ -52,10 +53,16 @@ class IOSController(DeviceController):
             return wdapy.AppiumUSBClient()
 
     def _get_window_size(self) -> tuple[int, int]:
-        """获取窗口尺寸（缓存结果）"""
+        """获取窗口尺寸（UIKit点，缓存结果）"""
         if self._window_size is None:
             self._window_size = self.client.window_size()
         return self._window_size
+
+    def _get_scale(self) -> float:
+        """获取屏幕缩放比例（像素/点），用于坐标转换"""
+        if self._scale is None:
+            self._scale = self.client.scale
+        return self._scale
 
     def get_device_info(self) -> dict:
         """获取设备信息（缓存结果）"""
@@ -75,8 +82,9 @@ class IOSController(DeviceController):
         return self._device_info
 
     def tap(self, x: int, y: int) -> None:
-        """点击屏幕指定坐标"""
-        self.client.tap(x, y)
+        """点击屏幕指定坐标（像素坐标会自动转换为UIKit点坐标）"""
+        scale = self._get_scale()
+        self.client.tap(int(x / scale), int(y / scale))
 
     def swipe(
         self,
@@ -90,11 +98,16 @@ class IOSController(DeviceController):
         滑动屏幕
 
         Args:
-            x1, y1: 起始坐标
-            x2, y2: 结束坐标
+            x1, y1: 起始坐标（像素）
+            x2, y2: 结束坐标（像素）
             duration_ms: 滑动持续时间（毫秒）
         """
-        self.client.swipe(x1, y1, x2, y2, duration=duration_ms / 1000)
+        scale = self._get_scale()
+        self.client.swipe(
+            int(x1 / scale), int(y1 / scale),
+            int(x2 / scale), int(y2 / scale),
+            duration=duration_ms / 1000,
+        )
 
     def swipe_direction(
         self,
@@ -124,7 +137,8 @@ class IOSController(DeviceController):
         }
 
         x1, y1, x2, y2 = moves[direction]
-        self.swipe(x1, y1, x2, y2, duration_ms)
+        # window_size 返回 UIKit 点，直接调用 client 而非 self.swipe 避免重复转换
+        self.client.swipe(x1, y1, x2, y2, duration=duration_ms / 1000)
 
     def input_text(self, text: str) -> None:
         """
@@ -169,8 +183,8 @@ class IOSController(DeviceController):
     def back(self) -> None:
         """返回（iOS通过从左边缘向右滑动模拟返回手势）"""
         w, h = self._get_window_size()
-        # 从屏幕左侧边缘向右滑动，模拟iOS返回手势
-        self.swipe(10, h // 2, w // 3, h // 2, duration_ms=300)
+        # 从屏幕左侧边缘向右滑动，模拟iOS返回手势（坐标已是 UIKit 点）
+        self.client.swipe(10, h // 2, w // 3, h // 2, duration=0.3)
 
     def home(self) -> None:
         """Home键"""

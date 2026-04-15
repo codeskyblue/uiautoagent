@@ -3,9 +3,11 @@
 from uiautoagent.agent.ai_utils import clarify_task, compress_markdown, summarize_task
 from uiautoagent.agent.device_agent import (
     Action,
+    ActionDetail,
     ActionType,
     AgentConfig,
     DeviceAgent,
+    RecordingController,
     TaskStep,
 )
 from uiautoagent.agent.executor import TaskResult, execute_ai_task, run_ai_task
@@ -15,8 +17,10 @@ __all__ = [
     # Core agent
     "DeviceAgent",
     "Action",
+    "ActionDetail",
     "ActionType",
     "AgentConfig",
+    "RecordingController",
     "TaskStep",
     # Memory
     "TaskMemory",

@@ -61,11 +61,13 @@ MODEL_PROXY=http://localhost:1080
 
 # 这两个配合价格便宜一些，10步以内的话，费用不到2毛钱
 # openai/gpt-5-mini   $0.25/M input tokens $2/M output tokens
-# openai/gpt-5.4-mini $0.75/M input tokens $4.50/M output tokens
-# z.ai/glm-5v-turbo   $1.20/M input tokens $4/M output tokens
 # z.ai/glm-4.6v       $0.30/M input tokens $0.90/M output tokens
 MODEL_NAME=openai/gpt-5-mini
 MODEL_DETECT=z-ai/glm-4.6v
+
+# 下面这个稍微贵点
+# openai/gpt-5.4-mini $0.75/M input tokens $4.50/M output tokens
+# z.ai/glm-5v-turbo   $1.20/M input tokens $4/M output tokens
 ```
 
 

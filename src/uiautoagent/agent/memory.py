@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import List
@@ -25,6 +26,7 @@ class TaskMemory:
 
     def __init__(self, memory_file: str | Path = "task_memory.yaml"):
         self.memory_file = Path(memory_file)
+        self._lock = threading.RLock()
         self._memories: List[dict] = self._load_memories()
 
     def _load_memories(self) -> List[dict]:
@@ -40,23 +42,24 @@ class TaskMemory:
 
     def _save_memories(self):
         """保存记忆到文件"""
-        self.memory_file.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "updated_at": datetime.now().isoformat(),
-            "total_tasks": len(self._memories),
-            "tasks": self._memories,
-        }
-        # yaml会自动将多行字符串保存为块样式标量（|- 或 |+）
-        self.memory_file.write_text(
-            yaml.dump(
-                data,
-                allow_unicode=True,
-                sort_keys=False,
-                default_flow_style=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
+        with self._lock:
+            self.memory_file.parent.mkdir(parents=True, exist_ok=True)
+            data = {
+                "updated_at": datetime.now().isoformat(),
+                "total_tasks": len(self._memories),
+                "tasks": self._memories,
+            }
+            # yaml会自动将多行字符串保存为块样式标量（|- 或 |+）
+            self.memory_file.write_text(
+                yaml.dump(
+                    data,
+                    allow_unicode=True,
+                    sort_keys=False,
+                    default_flow_style=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
 
     def find_similar_tasks(self, task: str, limit: int = 3) -> List[dict]:
         """
@@ -74,12 +77,15 @@ class TaskMemory:
         Returns:
             相似任务列表，按相似度排序
         """
-        if not self._memories:
+        with self._lock:
+            memories_snapshot = list(self._memories)
+
+        if not memories_snapshot:
             return []
 
         # 步骤1：字符串完全匹配
         exact_matches = [
-            m for m in self._memories if m["success"] and m["task"] == task
+            m for m in memories_snapshot if m["success"] and m["task"] == task
         ]
         if exact_matches:
             print(f"💡 找到完全相同的任务 ({len(exact_matches)}个)")
@@ -95,7 +101,7 @@ class TaskMemory:
             # 构建历史任务列表（只返回成功任务）
             successful_tasks = [
                 {"index": i, "task": m["task"], "summary": m.get("summary", "")}
-                for i, m in enumerate(self._memories)
+                for i, m in enumerate(memories_snapshot)
                 if m["success"]
             ]
 
@@ -149,7 +155,7 @@ class TaskMemory:
             for idx in indices[:limit]:
                 if 0 <= idx < len(successful_tasks):
                     original_idx = successful_tasks[idx]["index"]
-                    similar_memories.append(self._memories[original_idx])
+                    similar_memories.append(memories_snapshot[original_idx])
 
             if similar_memories:
                 print(f"💡 AI找到相似任务: {result.get('reasoning', '')}")
@@ -184,8 +190,9 @@ class TaskMemory:
             "summary": summary or "",
         }
 
-        self._memories.append(memory)
-        self._save_memories()
+        with self._lock:
+            self._memories.append(memory)
+            self._save_memories()
 
     def format_for_ai(self, similar_tasks: list[dict]) -> str:
         """将相似任务格式化为AI可读的参考信息"""

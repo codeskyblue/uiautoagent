@@ -76,6 +76,16 @@ def get_system_prompt() -> str:
 
 {examples}
 
+## 常用包名（参考）
+
+- 微信：Android `com.tencent.mm`，iOS `com.tencent.xin`
+- QQ：Android `com.tencent.mobileqq`，iOS `com.tencent.mqq`
+- 抖音：Android `com.ss.android.ugc.aweme`，iOS `com.ss.iphone.ugc.Aweme`
+- 小红书：Android `com.xingin.xhs`，iOS `com.xingin.discover`
+- 支付宝：Android `com.eg.android.AlipayGphone`，iOS `com.alipay.iphoneclient`
+- 淘宝：Android `com.taobao.taobao`，iOS `com.taobao.taobao4iphone`
+- 哔哩哔哩：Android `tv.danmaku.bili`，iOS `com.bilibili.app`
+
 ## 重要说明
 
 **字段使用规则：**

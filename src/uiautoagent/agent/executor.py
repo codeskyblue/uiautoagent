@@ -168,8 +168,7 @@ def build_history_summary(history: list) -> str:
         #     parts.append(f"等待: {action['wait_ms']}ms")
 
         details = ", ".join(parts)
-        obs = f" → {h['observation']}" if h.get("observation") else ""
-        lines.append(f"[步骤{h['step']}] {status} {details}{obs}")
+        lines.append(f"[步骤{h['step']}] {status} {details}")
 
     return "\n".join(lines)
 
@@ -267,7 +266,8 @@ def parse_action_from_plan(plan: PlanResponse) -> Action:
         kwargs["text"] = plan.text
     if plan.app_id:
         kwargs["app_id"] = plan.app_id
-    if action_type == ActionType.LONG_PRESS and plan.long_press_ms != 800:
+    long_press_default = Action.model_fields["long_press_ms"].default
+    if action_type == ActionType.LONG_PRESS and plan.long_press_ms != long_press_default:
         kwargs["long_press_ms"] = plan.long_press_ms
     if plan.direction and plan.direction in ("up", "down", "left", "right"):
         kwargs["direction"] = plan.direction

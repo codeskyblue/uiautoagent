@@ -25,21 +25,21 @@ cp .env.example .env
 在 `.env` 文件中配置 OpenAI 兼容的 API：
 
 ```bash
-# 基础配置
-BASE_URL=--openai-compatable--
-API_KEY=sk-xxx
-MODEL_NAME=--suport-vision-model--
+# 基础配置（推荐使用 UIAUTO_ 前缀，旧版变量名仍然支持）
+UIAUTO_BASE_URL=--openai-compatable--
+UIAUTO_API_KEY=sk-xxx
+UIAUTO_MODEL_NAME=--suport-vision-model--
 
 # 可选：为不同场景配置不同的模型
-MODEL_PLAN=                # AI规划模型（需要视觉能力）
-MODEL_DETECT=.             # 元素检测模型（需要视觉能力）
-MODEL_TEXT=.               # 文本处理模型（总结、澄清等）
+UIAUTO_MODEL_PLAN=         # AI规划模型（需要视觉能力）
+UIAUTO_MODEL_DETECT=       # 元素检测模型（需要视觉能力）
+UIAUTO_MODEL_TEXT=         # 文本处理模型（总结、澄清等）
 
 # 代理配置（可选）
-MODEL_PROXY=http://127.0.0.1:7890
+UIAUTO_MODEL_PROXY=http://127.0.0.1:7890
 
 # 请求超时时间（秒）
-REQUEST_TIMEOUT=60
+UIAUTO_REQUEST_TIMEOUT=60
 
 # OpenRouter 请求追踪（可选）
 OPENROUTER_SITE_URL=https://yoursite.com
@@ -47,20 +47,22 @@ OPENROUTER_SITE_NAME=YourAppName
 SESSION_ID=my-session-123   # 默认自动生成 UUID
 ```
 
+> **注意**：环境变量已升级为 `UIAUTO_` 前缀以避免命名冲突。旧版变量名（如 `BASE_URL`、`API_KEY` 等）仍然支持，但推荐使用新的前缀版本。
+
 推荐的配置
 
 ```sh
 # 方案1 (Openrouter)(推荐)
-BASE_URL=https://openrouter.ai/api/v1
-API_KEY=sk-...
+UIAUTO_BASE_URL=https://openrouter.ai/api/v1
+UIAUTO_API_KEY=sk-...
 # 由于openrouter不让国外访问，需要配置个国外的代理才行
-MODEL_PROXY=http://localhost:1080
+UIAUTO_MODEL_PROXY=http://localhost:1080
 
 # 这两个配合价格便宜一些，10步以内的话，费用不到2毛钱
 # openai/gpt-5-mini   $0.25/M input tokens $2/M output tokens
 # z.ai/glm-4.6v       $0.30/M input tokens $0.90/M output tokens
-MODEL_NAME=openai/gpt-5-mini
-MODEL_DETECT=z-ai/glm-4.6v
+UIAUTO_MODEL_NAME=openai/gpt-5-mini
+UIAUTO_MODEL_DETECT=z-ai/glm-4.6v
 # 下面两个模型稍微贵点
 # openai/gpt-5.4-mini $0.75/M input tokens $4.50/M output tokens
 # z.ai/glm-5v-turbo   $1.20/M input tokens $4/M output tokens
@@ -68,9 +70,9 @@ MODEL_DETECT=z-ai/glm-4.6v
 
 ```sh
 # 方案2 (Doubao)
-BASE_URL=https://ark.cn-beijing.volces.com/api/v3
-API_KEY=...
-MODEL_NAME=doubao-seed-2.0-pro
+UIAUTO_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+UIAUTO_API_KEY=...
+UIAUTO_MODEL_NAME=doubao-seed-2.0-pro
 ```
 
 
@@ -78,9 +80,9 @@ MODEL_NAME=doubao-seed-2.0-pro
 
 | 场景 | 环境变量 | 说明 | 模型要求 |
 |------|----------|------|----------|
-| `PLAN` | `MODEL_PLAN` | AI 规划下一步操作 | 需要视觉能力 |
-| `DETECT` | `MODEL_DETECT` | UI 元素检测定位 | 需要视觉能力 |
-| `TEXT` | `MODEL_TEXT` | 文本处理（总结、澄清、搜索） | 纯文本，无视觉要求 |
+| `PLAN` | `UIAUTO_MODEL_PLAN` | AI 规划下一步操作 | 需要视觉能力 |
+| `DETECT` | `UIAUTO_MODEL_DETECT` | UI 元素检测定位 | 需要视觉能力 |
+| `TEXT` | `UIAUTO_MODEL_TEXT` | 文本处理（总结、澄清、搜索） | 纯文本，无视觉要求 |
 
 ## 快速开始
 

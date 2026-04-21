@@ -229,3 +229,4 @@ task_*.yaml
 uiautoagent_tasks/
 devimages/
 tasks/
+*.swp

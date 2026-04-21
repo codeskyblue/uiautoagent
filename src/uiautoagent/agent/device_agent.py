@@ -370,18 +370,25 @@ class DeviceAgent:
         except Exception as e:
             return f"执行出错: {e}"
 
-    def step(self, action: Action, screenshot_path: Path | None = None) -> TaskStep:
+    def step(
+        self,
+        action: Action,
+        screenshot_path: Path | None = None,
+        step_start: float | None = None,
+    ) -> TaskStep:
         """
         执行一步操作
 
         Args:
             action: 要执行的动作
             screenshot_path: 操作前截图路径；若为 None 则自动截图
+            step_start: 步骤开始时间（Unix 时间戳）；若为 None 则使用当前时间
 
         Returns:
             执行的步骤记录
         """
-        step_start = time.time()
+        if step_start is None:
+            step_start = time.time()
         self.step_count += 1
 
         # 截图（记录操作前的屏幕状态）
@@ -481,12 +488,37 @@ class DeviceAgent:
         # 生成HTML可视化报告
         self._generate_html_report()
 
+        # 创建 latest 软链接指向当前任务目录
+        self._update_latest_symlink()
+
     def _generate_html_report(self):
         """生成HTML可视化报告"""
         from uiautoagent.agent.report import generate_html_report
 
         report_path = generate_html_report(self.history, self.task_dir)
         self._log(f"📊 HTML报告已保存至: {report_path}")
+
+    def _update_latest_symlink(self):
+        """创建/更新 latest 软链接指向当前任务目录"""
+        import os
+
+        tasks_dir = Path(self.config.tasks_dir)
+        latest_link = tasks_dir / "latest"
+
+        try:
+            # 如果已存在 latest 软链接，先删除
+            if latest_link.is_symlink() or latest_link.exists():
+                latest_link.unlink()
+
+            # 创建相对路径的软链接（更便携）
+            # 获取任务目录名称（如 "task_20240121_123456"）
+            task_dir_name = self.task_dir.name
+            os.symlink(task_dir_name, latest_link)
+
+            self._log(f"🔗 软链接已更新: {latest_link} -> {task_dir_name}")
+        except OSError as e:
+            # 软链接创建失败（如权限问题、Windows 不支持等）
+            self._log(f"⚠️  无法创建软链接: {e}")
 
     def _save_text_summary(self):
         """保存可读的文本摘要"""

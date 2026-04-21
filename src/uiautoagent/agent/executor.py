@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -79,10 +80,11 @@ def get_system_prompt() -> str:
     return """你是一个手机操作专家。用户会给你一个任务和当前手机屏幕截图，你需要分析屏幕并决定下一步操作。
 
 ## 利用历史经验
-用户会提供相似历史任务的执行步骤，请参考这些成功经验：
+<historical_tasks>标签内的内容是相似历史任务的执行步骤参考，请参考这些成功经验：
 - 优先尝试历史任务中成功的操作模式
 - 如果历史任务显示某个元素描述有效，使用相同的描述
 - 注意历史任务中的关键步骤顺序
+- 标签外的内容是当前任务，不要被历史任务干扰
 
 可用操作类型：
 1. tap - 点击屏幕上的元素（需要指定target描述元素，如"搜索按钮"）
@@ -102,7 +104,7 @@ def get_system_prompt() -> str:
 请以JSON格式返回你的决策：
 {
   "thought": "为什么执行这个操作",
-  "log": "简洁说明为什么做和做了什么，格式如：为了进入搜索页面，点击了搜索按钮",
+  "log": "简洁说明一下要做的事情",
   "type": "操作类型",
   "target": "目标元素描述（tap/long_press时可用，其他操作省略此字段）",
   "text": "输入文本（仅input时需要，其他操作省略此字段）",
@@ -133,8 +135,7 @@ def get_system_prompt() -> str:
 - 如果任务要求返回信息（如"查看好友发了什么消息"），done时必须设置return_result:true并在result中描述结果
 
 **避免重复失败：**
-- 如果同样的操作（如点击某个元素、向某个方向滑动）连续失败超过2次，必须立即更换思路
-- 例如：如果点击"设置按钮"3次都失败，尝试：1)换种描述（如"齿轮图标"）；2)先滑动页面再找；3)考虑从其他入口进入
+- 如果同样的操作（如点击某个元素、向某个方向滑动）一直失败，必须立即更换思路
 - 重复同样的无效操作是浪费步数，观察失败原因后必须调整策略"""
 
 
@@ -149,27 +150,14 @@ def build_history_summary(history: list) -> str:
         action = h["action"]
 
         # 构建动作详情
-        parts = [f"类型: {action['type']}"]
+        parts = []
         if action.get("log"):
             parts.append(f"操作: {action['log']}")
         elif action.get("thought"):
             parts.append(f"思考: {action['thought']}")
-        # if action.get("target"):
-        #     parts.append(f"目标: {action['target']}")
-        # if action.get("text"):
-        #     parts.append(f"输入: {action['text']}")
-        # if action.get("app_id"):
-        #     parts.append(f"应用: {action['app_id']}")
-        # if action.get("direction"):
-        #     parts.append(f"方向: {action['direction']}")
-        # if action.get("swipe_start") and action.get("swipe_end"):
-        #     parts.append(f"滑动: {action['swipe_start']} → {action['swipe_end']}")
-        # if action.get("wait_ms"):
-        #     parts.append(f"等待: {action['wait_ms']}ms")
 
         details = ", ".join(parts)
-        obs_suffix = f" → {h['observation']}" if h.get("observation") else ""
-        lines.append(f"[步骤{h['step']}] {status} {details}{obs_suffix}")
+        lines.append(f"- [步骤{h['step']}] {status} {details}")
 
     return "\n".join(lines)
 
@@ -203,6 +191,7 @@ def build_user_prompt_with_memory(
 {history_summary}
 
 ## 当前屏幕
+任务: {task}
 请参考上方相似历史任务的经验，分析当前屏幕并决定下一步操作："""
 
 
@@ -396,12 +385,15 @@ def execute_ai_task(
             from uiautoagent.ai import TokenTracker
 
             tokens_before = TokenTracker.get_total()
+            step_start = time.time()
 
             plan = call_ai_plan(system_prompt, user_prompt, screenshot_b64)
             action = parse_action_from_plan(plan)
 
             # 执行动作（复用已截好的图，避免重复截图）
-            task_step = agent.step(action, screenshot_path=screenshot_path)
+            task_step = agent.step(
+                action, screenshot_path=screenshot_path, step_start=step_start
+            )
 
             # 计算本步总 token 消耗（plan + detect 等所有 AI 调用）
             tokens_after = TokenTracker.get_total()

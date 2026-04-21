@@ -214,7 +214,9 @@ def generate_html_report(
         if step.ai_user_prompt:
             ai_detail_parts.append(("User Prompt", html.escape(step.ai_user_prompt)))
         if step.ai_response:
-            ai_detail_parts.append(("Assistant Response", html.escape(step.ai_response)))
+            ai_detail_parts.append(
+                ("Assistant Response", html.escape(step.ai_response))
+            )
 
         ai_response_html = ""
         if ai_detail_parts:
@@ -268,7 +270,7 @@ def generate_html_report(
             <div class="step-header">
                 <span class="step-num">步骤 {step.step_number}</span>
                 <span class="status-badge {status_class}">{status_text}</span>
-                <span class="action-type">{icon} {html.escape(step.action.type)}</span>
+                <span class="action-type">{icon} {html.escape(step.action.log or step.action.type)}</span>
             </div>
             <div class="step-body">
                 {screenshots_html}

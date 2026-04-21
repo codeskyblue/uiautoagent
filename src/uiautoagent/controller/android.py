@@ -97,7 +97,7 @@ class AndroidController(DeviceController):
         y1: int,
         x2: int,
         y2: int,
-        duration_ms: int = 300,
+        duration_ms: int = 500,
     ) -> None:
         """
         滑动屏幕
@@ -122,7 +122,7 @@ class AndroidController(DeviceController):
         self,
         direction: SwipeDirection,
         ratio: float = 0.25,
-        duration_ms: int = 300,
+        duration_ms: int = 500,
     ) -> None:
         """
         向指定方向滑动
@@ -236,8 +236,14 @@ class AndroidController(DeviceController):
             app_id: 应用包名，如 com.tencent.mm
         """
         output = self._run_adb(
-            "shell", "cmd", "package", "resolve-activity",
-            "--brief", "-c", "android.intent.category.LAUNCHER", app_id,
+            "shell",
+            "cmd",
+            "package",
+            "resolve-activity",
+            "--brief",
+            "-c",
+            "android.intent.category.LAUNCHER",
+            app_id,
         )
         for line in output.splitlines():
             line = line.strip()

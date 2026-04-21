@@ -203,7 +203,7 @@ class TaskMemory:
         if not similar_tasks:
             return "（无相关历史任务）"
 
-        lines = ["## 相似历史任务经验参考"]
+        lines = ["## 相似历史任务经验参考", "<historical_tasks>"]
         for i, task_mem in enumerate(similar_tasks, 1):
             status = "✅ 成功" if task_mem["success"] else "❌ 失败"
             lines.append(f"\n### {i}. {task_mem['task']} - {status}")
@@ -216,10 +216,10 @@ class TaskMemory:
                 lines.append("- 无总结信息")
 
         # 在末尾添加过期提示
+        lines.append("</historical_tasks>")
         lines.append(
             "\n**⚠️ 注意: 以上经验可能随APP更新失效，请根据当前屏幕实际情况灵活调整**"
         )
-
         return "\n".join(lines)
 
 

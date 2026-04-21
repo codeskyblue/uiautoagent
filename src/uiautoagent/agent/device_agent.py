@@ -186,6 +186,8 @@ class TaskStep(BaseModel):
     ai_response: str | None = None  # AI 原始响应文本
     ai_system_prompt: str | None = None  # AI 系统提示词
     ai_user_prompt: str | None = None  # AI 用户提示词（不含截图）
+    screenshot_after_path: str | None = None  # 操作后截图路径
+    image_similarity: float | None = None  # 操作前后图片相似度 (0-1)
 
     class Config:
         use_enum_values = True
@@ -207,6 +209,7 @@ class DeviceAgent:
         self,
         controller: DeviceController,
         config: AgentConfig | None = None,
+        task: str | None = None,
     ):
         """
         初始化Agent
@@ -214,11 +217,16 @@ class DeviceAgent:
         Args:
             controller: 设备控制器（Android/iOS等）
             config: Agent配置
+            task: 任务描述
         """
         self.controller = RecordingController(controller)
         self.config = config or AgentConfig()
         self.history: list[TaskStep] = []
         self.step_count = 0
+        self.task = task
+        self._last_screenshot_path: Path | None = None  # 上一步操作后的截图路径
+        self._last_screenshot_time: float = 0  # 上一步操作后的截图时间戳
+        self._screenshot_ttl: float = 1  # 截图有效期（秒）
 
         # 创建带时间戳的唯一任务目录
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -231,6 +239,20 @@ class DeviceAgent:
 
     def _take_screenshot(self) -> Path:
         """截取屏幕并保存"""
+        current_time = time.time()
+
+        # 如果有上一步的操作后截图，检查是否在有效期内
+        if self._last_screenshot_path is not None:
+            age = current_time - self._last_screenshot_time
+            if age <= self._screenshot_ttl:
+                # 截图在有效期内，可以复用
+                path = self._last_screenshot_path
+                self._last_screenshot_path = None
+                return path
+            else:
+                # 截图过期，清空记录
+                self._last_screenshot_path = None
+
         if self.config.save_screenshots:
             path = self.screenshot_dir / f"step_{self.step_count:03d}.png"
             if path.exists():
@@ -248,6 +270,98 @@ class DeviceAgent:
         """打印日志"""
         if self.config.verbose:
             print(message)
+
+    def _should_compare_screenshots(self, action: Action) -> bool:
+        """判断是否需要对比操作前后的截图"""
+        return action.type in (
+            ActionType.TAP,
+            ActionType.LONG_PRESS,
+            ActionType.INPUT,
+            ActionType.SWIPE,
+            ActionType.BACK,
+            ActionType.APP_LAUNCH,
+            ActionType.APP_REBOOT,
+        )
+
+    def _should_capture_after(self, action: Action) -> bool:
+        """判断操作后是否需要截图（用于下一步复用）"""
+        return action.type in (
+            ActionType.TAP,
+            ActionType.LONG_PRESS,
+            ActionType.INPUT,
+            ActionType.SWIPE,
+            ActionType.BACK,
+            ActionType.WAIT,
+            ActionType.APP_LAUNCH,
+            ActionType.APP_STOP,
+            ActionType.APP_REBOOT,
+        )
+
+    def _compare_screenshots(
+        self, before_path: Path
+    ) -> tuple[str | None, float | None]:
+        """
+        对比操作前后的截图
+
+        Returns:
+            (操作后截图路径, 相似度)
+        """
+        try:
+            from uiautoagent.agent.image_similarity import calculate_image_similarity
+
+            # 操作后截图
+            after_path = self._take_screenshot()
+
+            # 保存供下一步复用
+            self._last_screenshot_path = after_path
+            self._last_screenshot_time = time.time()
+
+            # 计算相似度
+            similarity = calculate_image_similarity(before_path, after_path)
+
+            return str(after_path), similarity
+        except Exception:
+            # 相似度计算失败不影响主流程
+            return None, None
+
+    def _create_task_step(
+        self,
+        action: Action,
+        screenshot_path: Path,
+        observation: str,
+        success: bool,
+        elapsed: float,
+        screenshot_after_path: str | None = None,
+        image_similarity: float | None = None,
+    ) -> TaskStep:
+        """创建任务步骤记录"""
+        # 获取操作详情
+        detail = None
+        if isinstance(self.controller, RecordingController):
+            detail = self.controller.last_detail
+
+        return TaskStep(
+            step_number=self.step_count,
+            screenshot_path=str(screenshot_path),
+            action=action,
+            observation=observation,
+            action_detail=detail,
+            success=success,
+            timestamp=time.time(),
+            elapsed=round(elapsed, 3),
+            screenshot_after_path=screenshot_after_path,
+            image_similarity=image_similarity,
+        )
+
+    def _log_step(self, step: TaskStep):
+        """打印步骤日志"""
+        status = "✅" if step.success else "❌"
+        self._log(f"\n[步骤 {step.step_number}] {status} 动作: {step.action}")
+        if step.action.thought:
+            self._log(f"思考: {step.action.thought}")
+        self._log(f"观察: {step.observation}")
+        if step.elapsed:
+            self._log(f"耗时: {step.elapsed:.2f}s")
 
     def _detect_and_tap(self, screenshot_path: Path, target: str) -> DetectionResult:
         """检测并点击元素，返回检测结果"""
@@ -409,33 +523,51 @@ class DeviceAgent:
             and action.type != ActionType.FAIL
         )
 
+        # 操作后截图和相似度计算（仅对会产生界面变化的操作）
+        screenshot_after_path: str | None = None
+        image_similarity: float | None = None
+
+        if self._should_compare_screenshots(action) and success:
+            screenshot_after_path, image_similarity = self._compare_screenshots(
+                screenshot_path
+            )
+            if image_similarity is not None:
+                from uiautoagent.agent.image_similarity import format_similarity_change
+
+                # action.type 可能是字符串或 ActionType 枚举
+                action_type_str = (
+                    action.type.value
+                    if isinstance(action.type, ActionType)
+                    else action.type
+                )
+                similarity_info = format_similarity_change(
+                    image_similarity, action_type_str
+                )
+                observation = f"{observation} | {similarity_info}"
+        elif self._should_capture_after(action) and success:
+            # 不需要计算相似度，但需要截图供下一步复用
+            after_path = self._take_screenshot()
+            self._last_screenshot_path = after_path
+            self._last_screenshot_time = time.time()
+            screenshot_after_path = str(after_path)
+
         # 计算执行耗时
         elapsed = time.time() - step_start
 
-        # 记录步骤
-        detail = None
-        if isinstance(self.controller, RecordingController):
-            detail = self.controller.last_detail
-
-        step = TaskStep(
-            step_number=self.step_count,
-            screenshot_path=str(screenshot_path),
+        # 创建并记录步骤
+        step = self._create_task_step(
             action=action,
+            screenshot_path=screenshot_path,
             observation=observation,
-            action_detail=detail,
             success=success,
-            timestamp=time.time(),
-            elapsed=round(elapsed, 3),
+            elapsed=elapsed,
+            screenshot_after_path=screenshot_after_path,
+            image_similarity=image_similarity,
         )
         self.history.append(step)
 
         # 日志输出
-        status = "✅" if success else "❌"
-        self._log(f"\n[步骤 {self.step_count}] {status} 动作: {action}")
-        if action.thought:
-            self._log(f"思考: {action.thought}")
-        self._log(f"观察: {observation}")
-        self._log(f"耗时: {elapsed:.2f}s")
+        self._log_step(step)
 
         return step
 
@@ -444,10 +576,43 @@ class DeviceAgent:
         return self._take_screenshot()
 
     def _append_step_log(self, step: TaskStep) -> None:
-        """将单步执行记录实时追加到 log.jsonl"""
-        log_path = self.task_dir / "log.jsonl"
+        """将单步执行记录实时追加到 log.txt"""
+        log_path = self.task_dir / "log.txt"
+
+        # 格式化步骤信息
+        status = "✅ 成功" if step.success else "❌ 失败"
+        lines = [
+            "=" * 60,
+            f"[步骤 {step.step_number}] {status}",
+            f"时间: {datetime.fromtimestamp(step.timestamp).strftime('%Y-%m-%d %H:%M:%S')}",
+            f"动作: {step.action}",
+        ]
+
+        if step.action.thought:
+            lines.append(f"思考: {step.action.thought}")
+
+        lines.append(f"观察: {step.observation}")
+
+        if step.elapsed is not None:
+            lines.append(f"耗时: {step.elapsed:.2f}s")
+
+        if step.image_similarity is not None:
+            from uiautoagent.agent.image_similarity import format_similarity_change
+
+            similarity_info = format_similarity_change(
+                step.image_similarity, step.action.type
+            )
+            lines.append(f"界面相似度: {similarity_info}")
+
+        if step.ai_tokens:
+            t = step.ai_tokens
+            lines.append(f"Token消耗: {t.total} (输入:{t.prompt}, 输出:{t.completion})")
+
+        lines.append("=" * 60)
+        lines.append("")  # 空行分隔
+
         with log_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(step.model_dump(), ensure_ascii=False) + "\n")
+            f.write("\n".join(lines))
 
     def save_history(self, path: str | Path | None = None):
         """保存任务历史到JSON文件"""
@@ -495,7 +660,7 @@ class DeviceAgent:
         """生成HTML可视化报告"""
         from uiautoagent.agent.report import generate_html_report
 
-        report_path = generate_html_report(self.history, self.task_dir)
+        report_path = generate_html_report(self.history, self.task_dir, self.task)
         self._log(f"📊 HTML报告已保存至: {report_path}")
 
     def _update_latest_symlink(self):
@@ -636,6 +801,7 @@ class DeviceAgent:
                     "action": s.action.model_dump(),
                     "observation": s.observation,
                     "success": s.success,
+                    "image_similarity": s.image_similarity,
                 }
                 for s in self.history
             ],

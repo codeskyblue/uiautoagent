@@ -134,6 +134,14 @@ def get_system_prompt() -> str:
 - input类型操作前需要先tap对应的输入框
 - 如果任务要求返回信息（如"查看好友发了什么消息"），done时必须设置return_result:true并在result中描述结果
 
+**界面相似度参考：**
+- 历史步骤中会标注界面变化情况（[界面几乎无变化]、[界面明显变化]等）
+- 如果点击/滑动后界面几乎无变化，说明操作可能未生效，需要：
+  - 检查是否点到了正确的位置（尝试更精确的描述）
+  - 考虑增加等待时间（界面响应可能有延迟）
+  - 尝试其他操作方式（如用swipe_direction代替点击特定位置）
+- 如果界面有明显变化，说明操作生效，可以继续下一步
+
 **避免重复失败：**
 - 如果同样的操作（如点击某个元素、向某个方向滑动）一直失败，必须立即更换思路
 - 重复同样的无效操作是浪费步数，观察失败原因后必须调整策略"""
@@ -157,7 +165,21 @@ def build_history_summary(history: list) -> str:
             parts.append(f"思考: {action['thought']}")
 
         details = ", ".join(parts)
-        lines.append(f"- [步骤{h['step']}] {status} {details}")
+
+        # 添加相似度信息（如果有）
+        similarity_info = ""
+        if h.get("image_similarity") is not None:
+            sim = h["image_similarity"]
+            if sim > 0.95:
+                similarity_info = " [界面几乎无变化，操作可能未生效]"
+            elif sim > 0.85:
+                similarity_info = " [界面轻微变化]"
+            elif sim > 0.7:
+                similarity_info = " [界面明显变化]"
+            else:
+                similarity_info = " [界面大幅变化]"
+
+        lines.append(f"- [步骤{h['step']}] {status} {details}{similarity_info}")
 
     return "\n".join(lines)
 
@@ -483,6 +505,7 @@ def run_ai_task(
             save_screenshots=True,
             verbose=verbose,
         ),
+        task=task,
     )
 
     info = controller.get_device_info()

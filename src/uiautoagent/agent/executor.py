@@ -112,7 +112,7 @@ def get_system_prompt() -> str:
   "swipe_start": "滑动起始位置描述（仅swipe按位置描述时需要，与swipe_end配合使用）",
   "swipe_end": "滑动结束位置描述（仅swipe按位置描述时需要，与swipe_start配合使用）",
   "wait_ms": "等待毫秒数（仅wait时需要，默认1000，其他操作省略此字段）",
-  "return_result": "true（仅done时需要，表示任务需要返回观察结果）",
+  "return_result": "是否返回观察结果（仅done时需要）",
   "result": "任务返回的结果或答案（仅done时需要）"
 }
 
@@ -168,8 +168,8 @@ def build_history_summary(history: list) -> str:
         #     parts.append(f"等待: {action['wait_ms']}ms")
 
         details = ", ".join(parts)
-        obs = f" → {h['observation']}" if h.get("observation") else ""
-        lines.append(f"[步骤{h['step']}] {status} {details}{obs}")
+        obs_suffix = f" → {h['observation']}" if h.get("observation") else ""
+        lines.append(f"[步骤{h['step']}] {status} {details}{obs_suffix}")
 
     return "\n".join(lines)
 

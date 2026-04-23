@@ -89,6 +89,7 @@ def demo_ai_assisted_task(
     task: str = "修改昵称为kitty",
     platform: str = "android",
     serial: str | None = None,
+    max_steps: int = 30,
     context: str | None = None,
 ):
     """
@@ -98,9 +99,12 @@ def demo_ai_assisted_task(
         task: 要执行的任务描述
         platform: 设备平台
         serial: 设备序列号/UDID
+        max_steps: 最大执行步数
         context: 用户提供的任务上下文
     """
-    run_ai_task(task, serial=serial, platform=platform, context=context)
+    run_ai_task(
+        task, serial=serial, max_steps=max_steps, platform=platform, context=context
+    )
 
 
 def demo_find_and_click(
@@ -218,6 +222,7 @@ def main():
             args.task,
             platform=args.platform,
             serial=args.serial,
+            max_steps=args.max_steps,
             context=context,
         )
     else:

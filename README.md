@@ -49,32 +49,13 @@ SESSION_ID=my-session-123   # 默认自动生成 UUID
 
 > **注意**：环境变量已升级为 `UIAUTO_` 前缀以避免命名冲突。旧版变量名（如 `BASE_URL`、`API_KEY` 等）仍然支持，但推荐使用新的前缀版本。
 
-推荐的配置
+推荐的模型
 
-```sh
-# 方案1 (Openrouter)(推荐)
-UIAUTO_BASE_URL=https://openrouter.ai/api/v1
-UIAUTO_API_KEY=sk-...
-# 由于openrouter不让国外访问，需要配置个国外的代理才行
-UIAUTO_MODEL_PROXY=http://localhost:1080
+- gpt5.4
+- doubao-seed-2.0-pro
+- glm-5v-turbo
 
-# 这两个配合价格便宜一些，10步以内的话，费用不到2毛钱
-# openai/gpt-5-mini   $0.25/M input tokens $2/M output tokens
-# z.ai/glm-4.6v       $0.30/M input tokens $0.90/M output tokens
-UIAUTO_MODEL_NAME=openai/gpt-5-mini
-UIAUTO_MODEL_VISION=z-ai/glm-4.6v
-# 下面两个模型稍微贵点
-# openai/gpt-5.4-mini $0.75/M input tokens $4.50/M output tokens
-# z.ai/glm-5v-turbo   $1.20/M input tokens $4/M output tokens
-```
-
-```sh
-# 方案2 (Doubao)
-UIAUTO_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
-UIAUTO_API_KEY=...
-UIAUTO_MODEL_NAME=doubao-seed-2.0-pro
-```
-
+其他的欢迎补充
 
 ### 场景说明
 

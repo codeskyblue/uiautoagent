@@ -89,7 +89,9 @@ class TaskMemory:
 
         # 步骤1：字符串完全匹配
         exact_matches = [
-            m for m in memories_snapshot if m["success"] and m["task"] == task
+            m
+            for m in memories_snapshot
+            if m["success"] and (m["task"] == task or m.get("original_task") == task)
         ]
         if exact_matches:
             print(f"💡 找到完全相同的任务 ({len(exact_matches)}个)")
@@ -104,7 +106,12 @@ class TaskMemory:
 
             # 构建历史任务列表（只返回成功任务）
             successful_tasks = [
-                {"index": i, "task": m["task"], "summary": m.get("summary", "")}
+                {
+                    "index": i,
+                    "task": m["task"],
+                    "original_task": m.get("original_task", m["task"]),
+                    "summary": m.get("summary", ""),
+                }
                 for i, m in enumerate(memories_snapshot)
                 if m["success"]
             ]
@@ -114,7 +121,10 @@ class TaskMemory:
 
             # 构建AI提示
             tasks_list = "\n".join(
-                [f"{i}. {t['task']}" for i, t in enumerate(successful_tasks)]
+                [
+                    f"{i}. {t['task']} (原始: {t['original_task']})"
+                    for i, t in enumerate(successful_tasks)
+                ]
             )
 
             prompt = f"""你是一个任务相似度分析专家。请从以下历史任务列表中，找出与当前任务最相似的{limit}个任务。

@@ -67,19 +67,14 @@ class TaskMemory:
 
     def find_similar_tasks(self, task: str, limit: int = 3) -> List[dict]:
         """
-        查找相似的历史任务
-
-        策略：
-        1. 先用字符串完全匹配查找
-        2. 如果找不到，再用AI查找
-        3. 如果AI也找不到，返回空
+        查找相似的历史任务（仅使用字符串精确匹配）
 
         Args:
             task: 当前任务描述
             limit: 返回数量限制
 
         Returns:
-            相似任务列表，按相似度排序
+            相似任务列表，按时间排序
         """
         with self._lock:
             memories_snapshot = list(self._memories)
@@ -87,7 +82,7 @@ class TaskMemory:
         if not memories_snapshot:
             return []
 
-        # 步骤1：字符串完全匹配
+        # 字符串完全匹配（同时匹配 clarified_task 和 original_task）
         exact_matches = [
             m
             for m in memories_snapshot
@@ -95,90 +90,11 @@ class TaskMemory:
         ]
         if exact_matches:
             print(f"💡 找到完全相同的任务 ({len(exact_matches)}个)")
-            # 按时间排序，返回最新的
             return sorted(exact_matches, key=lambda x: x["timestamp"], reverse=True)[
                 :limit
             ]
 
-        # 步骤2：使用AI查找相似任务
-        try:
-            from uiautoagent.ai import Category, chat_completion
-
-            # 构建历史任务列表（只返回成功任务）
-            successful_tasks = [
-                {
-                    "index": i,
-                    "task": m["task"],
-                    "original_task": m.get("original_task", m["task"]),
-                    "summary": m.get("summary", ""),
-                }
-                for i, m in enumerate(memories_snapshot)
-                if m["success"]
-            ]
-
-            if not successful_tasks:
-                return []
-
-            # 构建AI提示
-            tasks_list = "\n".join(
-                [
-                    f"{i}. {t['task']} (原始: {t['original_task']})"
-                    for i, t in enumerate(successful_tasks)
-                ]
-            )
-
-            prompt = f"""你是一个任务相似度分析专家。请从以下历史任务列表中，找出与当前任务最相似的{limit}个任务。
-
-当前任务：{task}
-
-历史任务列表：
-{tasks_list}
-
-请以JSON格式返回最相似任务的索引号（按相似度从高到低排序）：
-{{
-  "similar_indices": [索引号1, 索引号2, ...],
-  "reasoning": "简短说明为什么这些任务相似"
-}}
-
-只返回索引号，不要返回任务内容。"""
-
-            response = chat_completion(
-                category=Category.TEXT,
-                messages=[
-                    {"role": "system", "content": "你是一个任务相似度分析专家。"},
-                    {"role": "user", "content": prompt},
-                ],
-                response_format={"type": "json_object"},
-                max_tokens=512,
-                temperature=0.0,
-            )
-
-            content = response.choices[0].message.content
-            if not content:
-                return []
-
-            result = yaml.safe_load(content)
-            indices = result.get("similar_indices", [])
-
-            if not indices:
-                print("💡 AI未找到相似任务")
-                return []
-
-            # 根据索引获取对应的记忆（需要转换回原始索引）
-            similar_memories = []
-            for idx in indices[:limit]:
-                if 0 <= idx < len(successful_tasks):
-                    original_idx = successful_tasks[idx]["index"]
-                    similar_memories.append(memories_snapshot[original_idx])
-
-            if similar_memories:
-                print(f"💡 AI找到相似任务: {result.get('reasoning', '')}")
-
-            return similar_memories
-
-        except Exception as e:
-            print(f"⚠️  AI相似度分析失败: {e}")
-            return []
+        return []
 
     def save_task(
         self,
@@ -210,6 +126,24 @@ class TaskMemory:
         with self._lock:
             self._memories.append(memory)
             self._write_memories_to_file_unlocked()
+
+    def find_by_original_task(self, task: str) -> dict | None:
+        """
+        根据原始任务名查找历史任务（精确匹配 original_task 字段）
+
+        Args:
+            task: 用户原始输入的任务描述
+
+        Returns:
+            匹配的历史任务，未找到返回 None
+        """
+        with self._lock:
+            memories_snapshot = list(self._memories)
+
+        for m in reversed(memories_snapshot):
+            if m.get("original_task") == task:
+                return m
+        return None
 
     def format_for_ai(self, similar_tasks: list[dict]) -> str:
         """将相似任务格式化为AI可读的参考信息"""

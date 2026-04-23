@@ -71,3 +71,31 @@ def test_find_similar_tasks_matches_original(tmp_path):
     results = memory.find_similar_tasks("打开微信")
     assert len(results) == 1
     assert results[0]["original_task"] == "打开微信"
+
+
+def test_find_by_original_task(tmp_path):
+    """find_by_original_task should return the latest match for an original task."""
+    memory_file = tmp_path / "task_memory.yaml"
+    memory = TaskMemory(memory_file)
+
+    memory.save_task(
+        task="打开微信应用",
+        history=[],
+        success=True,
+        summary="first run",
+        original_task="打开微信",
+    )
+    memory.save_task(
+        task="打开微信应用",
+        history=[],
+        success=True,
+        summary="second run",
+        original_task="打开微信",
+    )
+
+    result = memory.find_by_original_task("打开微信")
+    assert result is not None
+    assert result["summary"] == "second run"  # latest match
+
+    # Non-existent task should return None
+    assert memory.find_by_original_task("不存在的任务") is None

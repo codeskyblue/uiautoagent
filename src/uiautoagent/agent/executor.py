@@ -496,7 +496,15 @@ def run_ai_task(
     from uiautoagent.agent.ai_utils import clarify_task
 
     original_task = task  # 保存原始输入
-    task = clarify_task(task)
+
+    # 先检查历史任务，如果有完全匹配的 original_task，直接复用其 clarified_task
+    task_memory = get_task_memory()
+    history_match = task_memory.find_by_original_task(original_task)
+    if history_match:
+        task = history_match["task"]
+        print(f"💡 历史任务匹配，复用已澄清的任务: {task!r}")
+    else:
+        task = clarify_task(task)
 
     # 创建任务提案
     proposal = TaskProposal(original_task=original_task, clarified_task=task)

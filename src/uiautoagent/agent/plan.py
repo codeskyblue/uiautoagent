@@ -208,10 +208,70 @@ PlanAction = Action
 PlanResponse = Action
 
 
-def get_action_examples_prompt() -> str:
-    """获取操作类型说明和示例的 Markdown 文本"""
+def _generate_action_doc(params_cls: type[BaseModel]) -> str:
+    """从 Params 模型定义生成单个操作的 params 文档"""
+    lines = []
+    required_fields = []
+    optional_fields = []
 
-    return """## 操作类型说明
+    for name, field_info in params_cls.model_fields.items():
+        desc = field_info.description or name
+        if field_info.is_required():
+            required_fields.append((name, desc))
+        else:
+            default = field_info.default
+            optional_fields.append((name, desc, default))
+
+    if required_fields or optional_fields:
+        lines.append("**params 字段：**")
+        for name, desc in required_fields:
+            lines.append(f"- `{name}`: {desc}")
+        for name, desc, default in optional_fields:
+            lines.append(f"- `{name}`: {desc}（可选，默认{default}）")
+    else:
+        lines.append("**params 字段：** 无（空对象 `{}`）")
+
+    return "\n".join(lines)
+
+
+# 操作类型的中文标题
+_ACTION_TITLES: dict[ActionType, str] = {
+    ActionType.TAP: "tap - 点击元素",
+    ActionType.LONG_PRESS: "long_press - 长按元素",
+    ActionType.INPUT: "input - 输入文本",
+    ActionType.SWIPE: "swipe - 滑动屏幕",
+    ActionType.BACK: "back - 返回上一页",
+    ActionType.WAIT: "wait - 等待",
+    ActionType.APP_LAUNCH: "app_launch - 启动应用",
+    ActionType.APP_STOP: "app_stop - 停止应用",
+    ActionType.APP_REBOOT: "app_reboot - 重启应用",
+    ActionType.DONE: "done - 任务完成",
+    ActionType.FAIL: "fail - 任务失败",
+}
+
+
+def get_action_examples_prompt() -> str:
+    """从 ActionType 和 Params 模型定义自动生成操作类型说明"""
+
+    sections = []
+    for i, action_type in enumerate(ActionType, 1):
+        params_cls = _ACTION_TYPE_TO_PARAMS[action_type]
+        title = _ACTION_TITLES.get(action_type, action_type.value)
+        doc = _generate_action_doc(params_cls)
+        if action_type == ActionType.SWIPE:
+            doc = (
+                "**方式1：按方向滑动**\n"
+                '- `direction`: "up" / "down" / "left" / "right"\n\n'
+                "**方式2：按位置描述滑动**\n"
+                "- `swipe_start`: 起始位置描述\n"
+                "- `swipe_end`: 结束位置描述\n\n"
+                "*direction 和 swipe_start/swipe_end 二选一*\n\n" + doc
+            )
+        sections.append(f"### {i}. {title}\n\n{doc}")
+
+    body = "\n\n---\n\n".join(sections)
+
+    return f"""## 操作类型说明
 
 **所有操作都包含这四个字段：**
 - `type`: 操作类型（如 "tap", "swipe" 等）
@@ -221,86 +281,7 @@ def get_action_examples_prompt() -> str:
 
 ---
 
-### 1. tap - 点击元素
-
-**params 字段：**
-- `target`: 目标元素描述，如"搜索按钮"
-
----
-
-### 2. long_press - 长按元素
-
-**params 字段：**
-- `target`: 目标元素描述
-- `long_press_ms`: 长按毫秒数（可选，默认800）
-
----
-
-### 3. input - 输入文本
-
-**params 字段：**
-- `text`: 要输入的文本内容
-
----
-
-### 4. swipe - 滑动屏幕
-
-**方式1：按方向滑动**
-- `direction`: "up" / "down" / "left" / "right"
-
-**方式2：按位置描述滑动**
-- `swipe_start`: 起始位置描述，如"个人资料图标"
-- `swipe_end`: 结束位置描述，如"设置按钮"
-
-*direction 和 swipe_start/swipe_end 二选一*
-
----
-
-### 5. back - 返回上一页
-
-**params 字段：** 无（空对象 `{}`）
-
----
-
-### 6. wait - 等待
-
-**params 字段：**
-- `wait_ms`: 等待毫秒数（可选，默认1000）
-
----
-
-### 7. app_launch - 启动应用
-
-**params 字段：**
-- `app_id`: 应用包名，如 `com.tencent.mm`
-
----
-
-### 8. app_stop - 停止应用
-
-**params 字段：**
-- `app_id`: 应用包名
-
----
-
-### 9. app_reboot - 重启应用
-
-**params 字段：**
-- `app_id`: 应用包名
-
----
-
-### 10. done - 任务完成
-
-**params 字段：**
-- `return_result`: 是否返回观察结果（可选，默认false）
-- `result`: 任务返回的结果或答案（当 return_result=true 时）
-
----
-
-### 11. fail - 任务失败
-
-**params 字段：** 无（空对象 `{}`）
+{body}
 
 ---
 

@@ -13,9 +13,11 @@ from uiautoagent.agent.ai_utils import compress_markdown, summarize_task
 from uiautoagent.agent.memory import TaskMemory, get_task_memory
 from uiautoagent.agent.plan import (
     Action,
+    ActionType,
     DoneParams,
     HistoryEntry,
     TaskProposal,
+    TapParams,
     get_action_examples_prompt,
     parse_plan_response,
 )
@@ -63,6 +65,14 @@ class TaskResult(BaseModel):
     result: str | None = None  # 任务执行结果（如"有5个好友"），失败时为错误信息
 
 
+_TAP_EXAMPLE = Action(
+    type=ActionType.TAP,
+    thought="需要点击搜索按钮进入搜索页面",
+    log="点击搜索按钮",
+    params=TapParams(target="搜索按钮", bbox=[120, 80, 350, 140]),
+).model_dump_json(exclude_none=True)
+
+
 def get_system_prompt() -> str:
     """获取系统提示词"""
     examples = get_action_examples_prompt()
@@ -78,6 +88,12 @@ def get_system_prompt() -> str:
 
 ## 输出格式
 只输出JSON，不要任何额外文本。字段只包含当前操作类型所需的，不要有空值。
+
+## 示例
+
+```json
+{_TAP_EXAMPLE}
+```
 
 ## 决策原则
 - 参考历史任务中的成功经验，但不要被失败步骤干扰

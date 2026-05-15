@@ -187,6 +187,29 @@ def demo_find_and_click(
     agent.save_history()
 
 
+def _run_extract(args: argparse.Namespace):
+    """执行 extract 模式：从图片中提取内容"""
+    import json as _json
+
+    from uiautoagent.detector.content_extractor import extract_content
+
+    if not args.image:
+        log.error("extract 模式需要指定图片路径", hint="使用 -i/--image 参数")
+        return
+    if not args.query:
+        log.error("extract 模式需要指定查询提示词", hint="使用 -q/--query 参数")
+        return
+
+    example = args.example or None
+
+    result = extract_content(args.image, args.query, example=example)
+
+    if result.success and result.content is not None:
+        print(_json.dumps(result.content, ensure_ascii=False, indent=2))
+    else:
+        log.error("图片内容提取失败", thought=result.thought)
+
+
 def main():
     """Main entry point for the uiautoagent CLI."""
     parser = argparse.ArgumentParser(
@@ -196,7 +219,7 @@ def main():
     parser.add_argument(
         "-m",
         "--mode",
-        choices=["manual", "ai", "find"],
+        choices=["manual", "ai", "find", "extract"],
         default="ai",
         help="运行模式",
     )
@@ -244,6 +267,23 @@ def main():
         default="DEBUG",
         help="日志级别（默认：DEBUG）",
     )
+    parser.add_argument(
+        "-i",
+        "--image",
+        default=None,
+        help="图片文件路径（extract模式使用）",
+    )
+    parser.add_argument(
+        "-q",
+        "--query",
+        default=None,
+        help="查询提示词（extract模式使用）",
+    )
+    parser.add_argument(
+        "--example",
+        default=None,
+        help='JSON 输出示例字符串，如 \'{"name":"商品","price":0}\'（extract模式可选）',
+    )
     args = parser.parse_args()
 
     # 设置日志级别
@@ -278,6 +318,8 @@ def main():
             max_steps=args.max_steps,
             context=context,
         )
+    elif args.mode == "extract":
+        _run_extract(args)
     else:
         demo_find_and_click(
             target=args.task, platform=args.platform, serial=args.serial

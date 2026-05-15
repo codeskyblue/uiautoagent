@@ -7,5 +7,14 @@ from uiautoagent.detector.bbox_detector import (
     detect_elements,
     draw_bbox,
 )
+from uiautoagent.detector.content_extractor import ExtractionResult, extract_content
 
-__all__ = ["BBox", "DetectionResult", "detect_element", "detect_elements", "draw_bbox"]
+__all__ = [
+    "BBox",
+    "DetectionResult",
+    "detect_element",
+    "detect_elements",
+    "draw_bbox",
+    "ExtractionResult",
+    "extract_content",
+]

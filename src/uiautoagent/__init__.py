@@ -33,6 +33,7 @@ from uiautoagent.controller import (  # noqa: E402
     SwipeDirection,
 )
 from uiautoagent.detector import BBox, DetectionResult, draw_bbox, detect_element  # noqa: E402
+from uiautoagent.detector.content_extractor import ExtractionResult, extract_content  # noqa: E402
 
 __all__ = [
     # AI client
@@ -65,6 +66,8 @@ __all__ = [
     "DetectionResult",
     "detect_element",
     "draw_bbox",
+    "extract_content",
+    "ExtractionResult",
 ]
 
 __version__ = "0.1.0"

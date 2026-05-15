@@ -655,8 +655,7 @@ class DeviceAgent:
         total_tokens = TokenTracker.get_total()
         stats_by_category = TokenTracker.get_stats()
 
-        # 绑定任务上下文
-        task_log = log.bind(task=self.task)
+        task_log = log.bind()
 
         for step in self.history:
             status = "✅" if step.success else "❌"
